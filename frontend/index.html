@@ -255,6 +255,49 @@
       margin-top: 10px;
     }
 
+    .persist-row {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .persist-chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: 1px solid #375170;
+      background: #152336;
+      color: #d8e6f7;
+    }
+
+    .persist-chip.saved {
+      border-color: #2f6650;
+      background: #143226;
+      color: #bbf7d0;
+    }
+
+    .persist-chip.pending {
+      border-color: #7a6a2a;
+      background: #312a12;
+      color: #fef3c7;
+    }
+
+    .persist-chip.error {
+      border-color: #7f2f45;
+      background: #3a1e27;
+      color: #fecdd3;
+    }
+
+    .persist-note {
+      font-size: 0.79rem;
+      color: #9fb5d0;
+    }
+
     .liveview-frame {
       width: 100%;
       height: 220px;
@@ -529,8 +572,13 @@
               <button id="addMqttBlockBtn" class="ghost" type="button">+ MQTT</button>
             </div>
           </div>
+          <div class="persist-note">Konfig-Änderungen werden automatisch gespeichert. Anzeige am Display erfolgt über Senden/Auto senden.</div>
 
           <div id="inputsContainer" class="inputs-list"></div>
+          <div class="persist-row">
+            <span id="persistChip" class="persist-chip saved">Gespeichert</span>
+            <span id="persistNote" class="persist-note">Eingaben werden automatisch gespeichert.</span>
+          </div>
           <div id="actionLog" class="log">Bereit.</div>
         </section>
       </div>
@@ -573,6 +621,8 @@
     const apiChip = document.getElementById("apiChip");
     const statusMeta = document.getElementById("statusMeta");
     const actionLog = document.getElementById("actionLog");
+    const persistChip = document.getElementById("persistChip");
+    const persistNote = document.getElementById("persistNote");
 
     const liveFrame = document.getElementById("liveFrame");
     const openLiveLink = document.getElementById("openLiveLink");
@@ -596,7 +646,10 @@
       blockSendChains: {},
       brokerStreams: {},
       brokerLastMessageNo: {},
-      autoRebuildTimer: null
+      autoRebuildTimer: null,
+      persistTimer: null,
+      hasUnsavedChanges: false,
+      lastSavedAt: 0
     };
 
     function sleep(ms) {
@@ -635,6 +688,77 @@
       } else {
         actionLog.style.color = "#334155";
       }
+    }
+
+    function saveTimeLabel(ts) {
+      if (!Number.isFinite(ts) || ts <= 0) {
+        return "";
+      }
+      return new Date(ts).toLocaleTimeString("de-DE", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function setPersistUi(mode, note = "") {
+      if (!persistChip || !persistNote) return;
+      const cleanMode = String(mode || "saved");
+      persistChip.className = `persist-chip ${cleanMode}`;
+
+      if (cleanMode === "pending") {
+        persistChip.textContent = "Ungespeichert";
+      } else if (cleanMode === "error") {
+        persistChip.textContent = "Speicherfehler";
+      } else {
+        persistChip.textContent = "Gespeichert";
+      }
+
+      if (note) {
+        persistNote.textContent = note;
+      } else if (cleanMode === "saved") {
+        const label = saveTimeLabel(state.lastSavedAt);
+        persistNote.textContent = label ? `Automatisch gespeichert (${label}).` : "Eingaben werden automatisch gespeichert.";
+      } else if (cleanMode === "pending") {
+        persistNote.textContent = "Änderungen werden gespeichert ...";
+      } else {
+        persistNote.textContent = "Speichern fehlgeschlagen. Bitte erneut speichern.";
+      }
+    }
+
+    function persistNow() {
+      if (state.persistTimer) {
+        clearTimeout(state.persistTimer);
+        state.persistTimer = null;
+      }
+      try {
+        localStorage.setItem(LS_INPUT_BLOCKS, JSON.stringify(state.inputBlocks));
+        const ip = normalizeIp(displayIpEl.value);
+        if (ip) {
+          localStorage.setItem(LS_DISPLAY_IP, ip);
+        }
+        state.hasUnsavedChanges = false;
+        state.lastSavedAt = Date.now();
+        setPersistUi("saved");
+      } catch (_) {
+        setPersistUi("error");
+      }
+    }
+
+    function markDirty() {
+      state.hasUnsavedChanges = true;
+      setPersistUi("pending");
+    }
+
+    function schedulePersist(delayMs = 320) {
+      markDirty();
+      if (state.persistTimer) {
+        clearTimeout(state.persistTimer);
+      }
+      state.persistTimer = setTimeout(() => {
+        state.persistTimer = null;
+        persistNow();
+      }, delayMs);
     }
 
     function setStatusOffline(message) {
@@ -791,8 +915,9 @@
         setLog("Leere IP kann nicht gespeichert werden.", "error");
         return;
       }
-      localStorage.setItem(LS_DISPLAY_IP, ip);
       displayIpEl.value = ip;
+      markDirty();
+      persistNow();
       updateLiveView(true);
       setLog(`Display-IP gespeichert: ${ip}`, "ok");
     }
@@ -997,7 +1122,7 @@
     }
 
     function saveInputBlocks() {
-      localStorage.setItem(LS_INPUT_BLOCKS, JSON.stringify(state.inputBlocks));
+      persistNow();
     }
 
     function esc(value) {
@@ -1346,8 +1471,6 @@
       } else {
         block[field] = value;
       }
-
-      saveInputBlocks();
     }
 
     async function sendNotificationText(text, duration) {
@@ -1828,7 +1951,7 @@
       const es = new EventSource(url);
       state.brokerStreams[brokerKey] = { es, signature, host, port };
 
-      es.onmessage = (event) => {
+      const handleStreamEvent = (event) => {
         if (!event || !event.data) return;
         let payload;
         try {
@@ -1838,6 +1961,8 @@
         }
         handleBrokerEvent(brokerKey, payload);
       };
+      es.onmessage = handleStreamEvent;
+      es.addEventListener("mqtt", handleStreamEvent);
 
       es.onerror = () => {
         // EventSource reconnects automatically.
@@ -1949,6 +2074,12 @@
     statusBtn.addEventListener("click", checkStatus);
     saveIpBtn.addEventListener("click", saveDisplayIp);
     clearBtn.addEventListener("click", clearDisplay);
+    displayIpEl.addEventListener("input", () => {
+      schedulePersist();
+    });
+    displayIpEl.addEventListener("change", () => {
+      updateLiveView(true);
+    });
 
     addTextBlockBtn.addEventListener("click", () => {
       state.inputBlocks.push(defaultTextBlock());
@@ -1978,6 +2109,7 @@
       }
 
       updateBlockField(blockId, field, target.value);
+      schedulePersist();
       if (["topicSearch", "topic", "jsonKey"].includes(field)) {
         refreshTopicBrowser(blockId);
       }
@@ -2040,7 +2172,7 @@
       }
 
       block.topic = next.join("/");
-      saveInputBlocks();
+      schedulePersist();
       refreshTopicBrowser(blockId);
       scheduleAutoPipelineRebuild();
       setLog(`${block.title || "MQTT"}: Topic-Pfad aktualisiert.`, "ok");
@@ -2127,6 +2259,9 @@
     });
 
     window.addEventListener("beforeunload", () => {
+      if (state.hasUnsavedChanges || state.persistTimer) {
+        persistNow();
+      }
       for (const key of Object.keys(state.brokerStreams)) {
         closeBrokerStream(key);
       }
