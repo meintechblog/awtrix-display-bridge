@@ -20,7 +20,12 @@ jobs:
       - name: Python syntax check
         run: |
           python -m py_compile bridge/mqtt_bridge.py
+      - name: Bridge unit tests
+        run: |
+          python -m unittest discover -s tests -v
       - name: Frontend sanity check
         run: |
           test -s frontend/index.html
+          test -s frontend/live.html
           grep -q '<!doctype html>' frontend/index.html
+          grep -q '<!doctype html>' frontend/live.html

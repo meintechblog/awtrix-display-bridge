@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AWTRIX Live</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    .stage {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 50% 20%, #111926 0%, #05070a 70%);
+    }
+    canvas {
+      width: min(96vw, 1200px);
+      aspect-ratio: 4 / 1;
+      height: auto;
+      border: 1px solid #1f2b3d;
+      border-radius: 10px;
+      background: #000;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <canvas id="screen" width="640" height="160" aria-label="AWTRIX Livebild"></canvas>
+  </div>
+  <script>
+    const COLS = 32;
+    const ROWS = 8;
+    const PX = 16;
+    const GAP = 4;
+    const PAD_X = 6;
+    const PAD_Y = 6;
+    const W = COLS * PX + (COLS - 1) * GAP + PAD_X * 2;
+    const H = ROWS * PX + (ROWS - 1) * GAP + PAD_Y * 2;
+
+    const canvas = document.getElementById("screen");
+    const ctx = canvas.getContext("2d", { alpha: false });
+    canvas.width = W;
+    canvas.height = H;
+
+    let inFlight = false;
+    let stopped = false;
+
+    function normalizeIp(value) {
+      let ip = String(value || "").trim();
+      ip = ip.replace(/^https?:\/\//i, "");
+      ip = ip.replace(/\/$/, "");
+      return ip;
+    }
+
+    function displayIp() {
+      const q = new URLSearchParams(window.location.search);
+      const ip = normalizeIp(q.get("ip") || "192.168.3.126");
+      return ip || "192.168.3.126";
+    }
+
+    function apiUrl() {
+      return `http://${displayIp()}/api/screen`;
+    }
+
+    function draw(pixels) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, W, H);
+
+      if (!Array.isArray(pixels) || pixels.length < COLS * ROWS) {
+        return;
+      }
+
+      for (let y = 0; y < ROWS; y += 1) {
+        for (let x = 0; x < COLS; x += 1) {
+          const idx = y * COLS + x;
+          const val = Number(pixels[idx]) >>> 0;
+          const r = (val >> 16) & 255;
+          const g = (val >> 8) & 255;
+          const b = val & 255;
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(PAD_X + x * (PX + GAP), PAD_Y + y * (PX + GAP), PX, PX);
+        }
+      }
+    }
+
+    async function tick() {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      try {
+        const res = await fetch(apiUrl(), { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          draw(data);
+        }
+      } catch (_) {
+        // keep last frame
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const interval = setInterval(tick, 180);
+    tick();
+
+    window.addEventListener("beforeunload", () => {
+      stopped = true;
+      clearInterval(interval);
+    });
+  </script>
+</body>
+</html>

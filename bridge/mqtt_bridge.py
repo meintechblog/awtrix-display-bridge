@@ -4,10 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import queue
 import threading
 import time
+from collections import deque
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import paho.mqtt.client as mqtt
 
@@ -46,6 +50,50 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(float(value), high))
+
+
+def _topic_matches_filter(topic: str, topic_filter: str) -> bool:
+    if not topic_filter:
+        return False
+
+    topic_levels = topic.split('/')
+    filter_levels = topic_filter.split('/')
+
+    i = 0
+    while i < len(filter_levels):
+        level = filter_levels[i]
+        if level == '#':
+            return i == len(filter_levels) - 1
+        if i >= len(topic_levels):
+            return False
+        if level != '+' and level != topic_levels[i]:
+            return False
+        i += 1
+
+    return i == len(topic_levels)
+
+
+def _topic_matches_any(topic: str, topic_filters: tuple[str, ...]) -> bool:
+    if not topic_filters:
+        return True
+    for topic_filter in topic_filters:
+        if _topic_matches_filter(topic, topic_filter):
+            return True
+    return False
+
+
+@dataclass
+class LiveSubscriber:
+    subscriber_id: str
+    topic_filters: tuple[str, ...]
+    events: queue.Queue
+
+    def matches(self, topic: str) -> bool:
+        return _topic_matches_any(topic, self.topic_filters)
+
+
 class LiveSession:
     def __init__(self, broker_host: str, broker_port: int) -> None:
         self.broker_host = broker_host
@@ -53,16 +101,20 @@ class LiveSession:
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._values: dict[str, dict[str, Any]] = {}
+        self._recent_events: deque[dict[str, Any]] = deque(maxlen=12000)
         self._msg_count = 0
-        self._last_msg_at = 0
+        self._last_msg_at_ms = 0
         self._last_error = ''
         self._connected = False
         self._started_at = int(time.time())
+        self._subscribers: dict[str, LiveSubscriber] = {}
+        self._next_subscriber_id = 1
 
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
+        self._client.reconnect_delay_set(min_delay=1, max_delay=8)
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         with self._cond:
@@ -77,25 +129,53 @@ class LiveSession:
             self._last_error = f'disconnected: {reason_code}'
             self._cond.notify_all()
 
+    @staticmethod
+    def _push_subscriber_event(subscriber: LiveSubscriber, event: dict[str, Any]) -> None:
+        try:
+            subscriber.events.put_nowait(dict(event))
+            return
+        except queue.Full:
+            pass
+
+        try:
+            subscriber.events.get_nowait()
+        except Exception:
+            return
+
+        try:
+            subscriber.events.put_nowait(dict(event))
+        except Exception:
+            pass
+
     def _on_message(self, client, userdata, msg):
         topic = str(msg.topic or '').strip()
         if not topic:
             return
 
         payload = _decode_payload(msg.payload)
-        now = int(time.time())
+        now_ms = int(time.time() * 1000)
         keys = _extract_json_keys(payload)
 
         with self._cond:
             self._msg_count += 1
-            self._last_msg_at = now
-            self._values[topic] = {
+            message_no = self._msg_count
+            event = {
                 'topic': topic,
                 'payload': payload,
                 'json_keys': keys,
-                'updated_at': now,
-                'message_no': self._msg_count,
+                'updated_at': now_ms // 1000,
+                'updated_at_ms': now_ms,
+                'message_no': message_no,
             }
+            self._last_msg_at_ms = now_ms
+            self._values[topic] = dict(event)
+            self._recent_events.append(dict(event))
+
+            subscribers = list(self._subscribers.values())
+            for subscriber in subscribers:
+                if subscriber.matches(topic):
+                    self._push_subscriber_event(subscriber, event)
+
             self._cond.notify_all()
 
     def start(self) -> None:
@@ -112,6 +192,10 @@ class LiveSession:
         except Exception:
             pass
 
+    def message_count(self) -> int:
+        with self._lock:
+            return self._msg_count
+
     def get_topic(self, topic: str) -> dict[str, Any] | None:
         with self._lock:
             item = self._values.get(topic)
@@ -120,7 +204,7 @@ class LiveSession:
             return dict(item)
 
     def wait_for_topic(self, topic: str, timeout_s: float, min_message_no: int = 0) -> dict[str, Any] | None:
-        timeout = max(0.2, min(float(timeout_s), 30.0))
+        timeout = _clamp(timeout_s, 0.2, 30.0)
         deadline = time.time() + timeout
 
         with self._cond:
@@ -134,19 +218,86 @@ class LiveSession:
                     return None
                 self._cond.wait(timeout=remaining)
 
-    def snapshot(self, query: str = '', limit: int = 200) -> dict[str, Any]:
-        q = query.strip().lower()
-        lim = max(1, min(int(limit), 2000))
+    def add_subscriber(
+        self,
+        topic_filters: list[str] | tuple[str, ...] | None = None,
+        last_message_no: int = 0,
+        queue_size: int = 400,
+    ) -> str:
+        if topic_filters is None:
+            normalized_filters: tuple[str, ...] = ()
+        else:
+            normalized_filters = tuple(
+                item.strip() for item in topic_filters if isinstance(item, str) and item.strip()
+            )
+
+        qsize = max(50, min(int(queue_size), 5000))
+
+        with self._cond:
+            subscriber_id = str(self._next_subscriber_id)
+            self._next_subscriber_id += 1
+            subscriber = LiveSubscriber(
+                subscriber_id=subscriber_id,
+                topic_filters=normalized_filters,
+                events=queue.Queue(maxsize=qsize),
+            )
+            self._subscribers[subscriber_id] = subscriber
+
+            if int(last_message_no) > 0:
+                for event in self._recent_events:
+                    if int(event.get('message_no', 0)) <= int(last_message_no):
+                        continue
+                    if subscriber.matches(str(event.get('topic', ''))):
+                        self._push_subscriber_event(subscriber, event)
+
+            return subscriber_id
+
+    def pop_subscriber_event(self, subscriber_id: str, timeout_s: float = 15.0) -> dict[str, Any] | None:
+        with self._lock:
+            subscriber = self._subscribers.get(subscriber_id)
+        if subscriber is None:
+            raise KeyError('subscriber not found')
+
+        timeout = _clamp(timeout_s, 0.2, 60.0)
+        try:
+            event = subscriber.events.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+        return dict(event)
+
+    def remove_subscriber(self, subscriber_id: str) -> None:
+        with self._cond:
+            self._subscribers.pop(subscriber_id, None)
+
+    def topic_items(self, limit: int = 2000, sort_by: str = 'topic') -> list[dict[str, Any]]:
+        lim = max(1, min(int(limit), 200000))
 
         with self._lock:
-            topics = list(self._values.values())
+            topics = [dict(item) for item in self._values.values()]
+
+        if sort_by == 'updated_at':
+            topics.sort(key=lambda x: int(x.get('updated_at_ms', 0)), reverse=True)
+        else:
+            topics.sort(key=lambda x: str(x.get('topic', '')))
+
+        return topics[:lim]
+
+    def snapshot(self, query: str = '', limit: int = 200) -> dict[str, Any]:
+        q = query.strip().lower()
+        lim = max(1, min(int(limit), 200000))
+
+        with self._lock:
+            topics = [dict(item) for item in self._values.values()]
             connected = self._connected
             msg_count = self._msg_count
-            last_msg_at = self._last_msg_at
+            last_msg_at_ms = self._last_msg_at_ms
             last_error = self._last_error
             started_at = self._started_at
+            subscriber_count = len(self._subscribers)
 
         if q:
+
             def matches(item: dict[str, Any]) -> bool:
                 topic = str(item.get('topic', '')).lower()
                 payload = str(item.get('payload', '')).lower()
@@ -157,17 +308,19 @@ class LiveSession:
         else:
             filtered = topics
 
-        filtered.sort(key=lambda x: int(x.get('updated_at', 0)), reverse=True)
+        filtered.sort(key=lambda x: int(x.get('updated_at_ms', 0)), reverse=True)
 
         return {
             'broker': self.broker_host,
             'port': self.broker_port,
             'connected': connected,
             'started_at': started_at,
-            'last_msg_at': last_msg_at,
+            'last_msg_at': last_msg_at_ms // 1000 if last_msg_at_ms else 0,
+            'last_msg_at_ms': last_msg_at_ms,
             'message_count': msg_count,
             'count_total': len(topics),
             'count_filtered': len(filtered),
+            'subscriber_count': subscriber_count,
             'last_error': last_error,
             'topics': filtered[:lim],
         }
@@ -183,6 +336,11 @@ class MQTTBridge:
     def _key(broker_host: str, broker_port: int) -> str:
         return f'{broker_host}:{broker_port}'
 
+    def _get_session(self, broker_host: str, broker_port: int) -> LiveSession | None:
+        key = self._key(broker_host, broker_port)
+        with self._lock:
+            return self._live_sessions.get(key)
+
     def sync_topics(
         self,
         broker_host: str,
@@ -190,60 +348,42 @@ class MQTTBridge:
         timeout_s: float = 3.0,
         max_topics: int = 1200,
     ) -> dict[str, Any]:
-        topics: dict[str, str] = {}
-        cache_key = self._key(broker_host, broker_port)
-
-        def on_connect(client, userdata, flags, reason_code, properties=None):
-            client.subscribe('#', qos=0)
-
-        def on_message(client, userdata, msg):
-            if not msg.topic:
-                return
-            if len(topics) >= max_topics and msg.topic not in topics:
-                return
-            topics[msg.topic] = _decode_payload(msg.payload)
-
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        client.on_connect = on_connect
-        client.on_message = on_message
-
         started = time.time()
-        try:
-            client.connect(broker_host, broker_port, keepalive=10)
-            client.loop_start()
-            time.sleep(max(0.5, min(timeout_s, 25.0)))
-        finally:
-            try:
-                client.loop_stop()
-            except Exception:
-                pass
-            try:
-                client.disconnect()
-            except Exception:
-                pass
+        self.start_live(broker_host, broker_port)
+        session = self._get_session(broker_host, broker_port)
+        if session is None:
+            raise RuntimeError('live session unavailable')
 
-        elapsed_ms = int((time.time() - started) * 1000)
+        wait_s = _clamp(timeout_s, 0.5, 30.0)
+        baseline = session.message_count()
+        deadline = time.time() + wait_s
+        while time.time() < deadline:
+            if session.message_count() > baseline:
+                break
+            time.sleep(0.08)
+
         items = []
-        for topic in sorted(topics.keys()):
-            sample = topics[topic]
-            keys = _extract_json_keys(sample)
+        for event in session.topic_items(limit=max_topics, sort_by='topic'):
             items.append(
                 {
-                    'topic': topic,
-                    'sample': sample,
-                    'json_keys': keys,
+                    'topic': str(event.get('topic', '')),
+                    'sample': str(event.get('payload', '')),
+                    'json_keys': [str(k) for k in (event.get('json_keys') or [])],
                 }
             )
 
+        elapsed_ms = int((time.time() - started) * 1000)
         snapshot = {
             'broker': broker_host,
             'port': broker_port,
             'synced_at': int(time.time()),
             'elapsed_ms': elapsed_ms,
             'count': len(items),
+            'source': 'live-session',
             'topics': items,
         }
 
+        cache_key = self._key(broker_host, broker_port)
         with self._lock:
             self._topic_cache[cache_key] = snapshot
 
@@ -264,19 +404,18 @@ class MQTTBridge:
         started = time.time()
         self.start_live(broker_host, broker_port)
 
-        key = self._key(broker_host, broker_port)
-        with self._lock:
-            session = self._live_sessions.get(key)
-
+        session = self._get_session(broker_host, broker_port)
         if session is None:
             raise RuntimeError('live session unavailable')
 
         cached = session.get_topic(clean_topic)
         if cached is not None and not fresh:
+            received_ms = int(cached.get('updated_at_ms', 0) or 0)
             return {
                 'topic': clean_topic,
                 'payload': str(cached.get('payload', '')),
-                'received_at': int(cached.get('updated_at', 0) or 0),
+                'received_at': received_ms // 1000 if received_ms else int(cached.get('updated_at', 0) or 0),
+                'received_at_ms': received_ms,
                 'elapsed_ms': int((time.time() - started) * 1000),
                 'source': 'cache',
                 'message_no': int(cached.get('message_no', 0) or 0),
@@ -287,10 +426,12 @@ class MQTTBridge:
         item = session.wait_for_topic(clean_topic, timeout_s=timeout_s, min_message_no=min_msg_no)
         if item is None:
             if cached is not None:
+                received_ms = int(cached.get('updated_at_ms', 0) or 0)
                 return {
                     'topic': clean_topic,
                     'payload': str(cached.get('payload', '')),
-                    'received_at': int(cached.get('updated_at', 0) or 0),
+                    'received_at': received_ms // 1000 if received_ms else int(cached.get('updated_at', 0) or 0),
+                    'received_at_ms': received_ms,
                     'elapsed_ms': int((time.time() - started) * 1000),
                     'source': 'cache-fallback',
                     'message_no': int(cached.get('message_no', 0) or 0),
@@ -298,10 +439,12 @@ class MQTTBridge:
                 }
             raise TimeoutError("No message received for topic '%s' within timeout" % clean_topic)
 
+        received_ms = int(item.get('updated_at_ms', 0) or 0)
         return {
             'topic': clean_topic,
             'payload': str(item.get('payload', '')),
-            'received_at': int(item.get('updated_at', 0) or 0),
+            'received_at': received_ms // 1000 if received_ms else int(item.get('updated_at', 0) or 0),
+            'received_at_ms': received_ms,
             'elapsed_ms': int((time.time() - started) * 1000),
             'source': 'live',
             'message_no': int(item.get('message_no', 0) or 0),
@@ -357,6 +500,49 @@ class MQTTBridge:
             'was_running': True,
         }
 
+    def create_live_subscriber(
+        self,
+        broker_host: str,
+        broker_port: int,
+        topic_filters: list[str] | tuple[str, ...] | None = None,
+        last_message_no: int = 0,
+        queue_size: int = 400,
+    ) -> dict[str, Any]:
+        self.start_live(broker_host, broker_port)
+        session = self._get_session(broker_host, broker_port)
+        if session is None:
+            raise RuntimeError('live session unavailable')
+
+        subscriber_id = session.add_subscriber(
+            topic_filters=topic_filters,
+            last_message_no=last_message_no,
+            queue_size=queue_size,
+        )
+        return {
+            'broker': broker_host,
+            'port': broker_port,
+            'subscriber_id': subscriber_id,
+            'topic_filters': list(topic_filters or []),
+        }
+
+    def wait_live_event(
+        self,
+        broker_host: str,
+        broker_port: int,
+        subscriber_id: str,
+        timeout_s: float = 15.0,
+    ) -> dict[str, Any] | None:
+        session = self._get_session(broker_host, broker_port)
+        if session is None:
+            raise RuntimeError('live session unavailable')
+        return session.pop_subscriber_event(subscriber_id=subscriber_id, timeout_s=timeout_s)
+
+    def remove_live_subscriber(self, broker_host: str, broker_port: int, subscriber_id: str) -> None:
+        session = self._get_session(broker_host, broker_port)
+        if session is None:
+            return
+        session.remove_subscriber(subscriber_id)
+
     def live_snapshot(
         self,
         broker_host: str,
@@ -365,15 +551,11 @@ class MQTTBridge:
         limit: int = 200,
         auto_start: bool = True,
     ) -> dict[str, Any]:
-        key = self._key(broker_host, broker_port)
-
-        with self._lock:
-            session = self._live_sessions.get(key)
+        session = self._get_session(broker_host, broker_port)
 
         if session is None and auto_start:
             self.start_live(broker_host, broker_port)
-            with self._lock:
-                session = self._live_sessions.get(key)
+            session = self._get_session(broker_host, broker_port)
 
         if session is None:
             return {
@@ -385,6 +567,7 @@ class MQTTBridge:
                 'topics': [],
                 'message_count': 0,
                 'last_msg_at': 0,
+                'last_msg_at_ms': 0,
                 'started_at': 0,
                 'last_error': 'live session not running',
             }
@@ -406,12 +589,20 @@ class MQTTBridge:
 class Handler(BaseHTTPRequestHandler):
     bridge = MQTTBridge()
 
-    def _set_headers(self, code: int = 200) -> None:
+    def _set_headers(
+        self,
+        code: int = 200,
+        content_type: str = 'application/json; charset=utf-8',
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Type', content_type)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type,Last-Event-ID')
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
         self.end_headers()
 
     def _write_json(self, payload: dict[str, Any], code: int = 200) -> None:
@@ -429,13 +620,129 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError('JSON payload must be an object')
         return data
 
+    def _parse_topics(self, params: dict[str, list[str]]) -> list[str]:
+        raw_items: list[str] = []
+        raw_items.extend(params.get('topic', []))
+        raw_items.extend(params.get('topics', []))
+
+        topics: list[str] = []
+        for item in raw_items:
+            for part in str(item).split(','):
+                topic = part.strip()
+                if topic:
+                    topics.append(topic)
+
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for topic in topics:
+            if topic in seen:
+                continue
+            seen.add(topic)
+            dedup.append(topic)
+        return dedup
+
+    def _stream_mqtt_events(self, parsed) -> None:
+        params = parse_qs(parsed.query or '', keep_blank_values=False)
+
+        broker = str((params.get('broker_host') or [''])[0]).strip()
+        port = int((params.get('broker_port') or ['1883'])[0])
+        heartbeat_s = _clamp(float((params.get('heartbeat_s') or ['15'])[0]), 5.0, 60.0)
+        queue_size = int((params.get('queue_size') or ['400'])[0])
+        topics = self._parse_topics(params)
+
+        if not broker:
+            raise ValueError('broker_host is required')
+
+        last_message_no = 0
+        raw_last = (params.get('last_message_no') or [''])[0]
+        if raw_last:
+            last_message_no = int(raw_last)
+        elif self.headers.get('Last-Event-ID'):
+            try:
+                last_message_no = int(str(self.headers.get('Last-Event-ID', '0')).strip() or '0')
+            except Exception:
+                last_message_no = 0
+
+        subscriber = self.bridge.create_live_subscriber(
+            broker_host=broker,
+            broker_port=port,
+            topic_filters=topics,
+            last_message_no=last_message_no,
+            queue_size=queue_size,
+        )
+        subscriber_id = str(subscriber.get('subscriber_id'))
+
+        self._set_headers(
+            200,
+            content_type='text/event-stream; charset=utf-8',
+            extra_headers={
+                'Cache-Control': 'no-cache, no-transform',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            },
+        )
+
+        try:
+            self.wfile.write(b': connected\n\n')
+            self.wfile.flush()
+
+            while True:
+                event = self.bridge.wait_live_event(
+                    broker_host=broker,
+                    broker_port=port,
+                    subscriber_id=subscriber_id,
+                    timeout_s=heartbeat_s,
+                )
+
+                if event is None:
+                    self.wfile.write(b': ping\n\n')
+                    self.wfile.flush()
+                    continue
+
+                payload = {
+                    'topic': str(event.get('topic', '')),
+                    'payload': str(event.get('payload', '')),
+                    'json_keys': [str(k) for k in (event.get('json_keys') or [])],
+                    'updated_at': int(event.get('updated_at', 0) or 0),
+                    'updated_at_ms': int(event.get('updated_at_ms', 0) or 0),
+                    'message_no': int(event.get('message_no', 0) or 0),
+                }
+                event_id = payload['message_no']
+                blob = (
+                    f'id: {event_id}\n'
+                    'event: mqtt\n'
+                    f'data: {json.dumps(payload, ensure_ascii=True)}\n\n'
+                )
+                self.wfile.write(blob.encode('utf-8'))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            self.bridge.remove_live_subscriber(broker, port, subscriber_id)
+
     def do_OPTIONS(self) -> None:
         self._set_headers(204)
 
     def do_GET(self) -> None:
-        if self.path == '/health':
+        parsed = urlparse(self.path)
+
+        if parsed.path == '/health':
             self._write_json({'ok': True, 'service': 'mqtt-bridge'})
             return
+
+        if parsed.path == '/mqtt/live/events':
+            try:
+                self._stream_mqtt_events(parsed)
+            except ValueError as exc:
+                self._write_json({'ok': False, 'error': str(exc)}, code=400)
+            except Exception as exc:
+                LOG.exception('SSE request failed')
+                try:
+                    self._write_json({'ok': False, 'error': str(exc)}, code=500)
+                except Exception:
+                    pass
+            return
+
         self._write_json({'ok': False, 'error': 'Not found'}, code=404)
 
     def do_POST(self) -> None:

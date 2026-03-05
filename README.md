@@ -9,17 +9,21 @@ Webapp + MQTT bridge to push dynamic content to an AWTRIX 3 display (Ulanzi).
 - JSON key extraction from payloads
 - Manual send + auto-send modes (`real time`, `1s..10s`, `off`)
 - Per-block stale guard to drop outdated values
-- Display live screen embed (`/screen`)
+- Event-driven MQTT forwarding via SSE (no polling loop)
+- Display live screen embed via clean renderer (`/live.html`)
 
 ## Repository Layout
 - `frontend/index.html` - Single-file web UI
+- `frontend/live.html` - Clean AWTRIX live renderer (no AWTRIX UI controls)
 - `bridge/mqtt_bridge.py` - MQTT helper API (port `8090`)
 - `deploy/systemd/ulanzi-mqtt-bridge.service` - Systemd service unit
+- `tests/test_mqtt_bridge.py` - Bridge unit tests
 
 ## Runtime Architecture
 - Browser UI talks to AWTRIX device API directly (`http://<display-ip>/api/...`)
 - Browser UI talks to bridge API on port `8090` for MQTT operations
 - Bridge maintains persistent MQTT live sessions per broker
+- Browser auto-send uses `GET /mqtt/live/events` (SSE) with per-topic stream filters
 
 ## Requirements
 - Python `3.11+`
@@ -46,10 +50,12 @@ systemctl enable --now ulanzi-mqtt-bridge.service
 # 4) Deploy frontend (example nginx docroot)
 mkdir -p /var/www/ulanzi
 cp frontend/index.html /var/www/ulanzi/index.html
+cp frontend/live.html /var/www/ulanzi/live.html
 ```
 
 ## Bridge API
 - `GET /health`
+- `GET /mqtt/live/events` (SSE)
 - `POST /mqtt/topics/sync`
 - `POST /mqtt/topic/value`
 - `POST /mqtt/live/start`
@@ -59,3 +65,4 @@ cp frontend/index.html /var/www/ulanzi/index.html
 ## Notes
 - The UI is optimized for low-latency updates and ignores stale MQTT values based on per-block stale guard.
 - For predictable behavior, ensure broker and display are on stable LAN.
+- MQTT itself has no universal \"list all topics\" RPC; sync is based on topics seen by the live session.
