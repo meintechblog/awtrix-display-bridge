@@ -1,0 +1,1921 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AWTRIX Bridge MVP</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a1018;
+      --bg2: #111b2c;
+      --surface: #101a2a;
+      --line: #273650;
+      --ink: #e8eef9;
+      --muted: #9bb0ca;
+      --accent: #14b8a6;
+      --accent-strong: #0d9488;
+      --danger-bg: #3a1e27;
+      --danger-line: #7f2f45;
+      --danger-ink: #fecdd3;
+      --ok-bg: #153b2e;
+      --ok-line: #236048;
+      --ok-ink: #bbf7d0;
+      --shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "Segoe UI", "Trebuchet MS", "Helvetica Neue", sans-serif;
+      background:
+        radial-gradient(circle at 8% 12%, rgba(20, 184, 166, 0.14), transparent 36%),
+        radial-gradient(circle at 90% 16%, rgba(245, 158, 11, 0.12), transparent 30%),
+        linear-gradient(160deg, var(--bg) 0%, var(--bg2) 100%);
+      padding: 16px;
+    }
+
+    .wrap {
+      max-width: 1020px;
+      margin: 0 auto;
+      display: grid;
+      gap: 14px;
+    }
+
+    .hero {
+      background: linear-gradient(140deg, #0f1a2a 0%, #15243a 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(1.2rem, 3.4vw, 1.8rem);
+    }
+
+    .hero p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .display-block {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .display-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 8px;
+      border-bottom: 1px dashed #314560;
+    }
+
+    .display-head h2 {
+      margin: 0;
+      font-size: 1.02rem;
+    }
+
+    .display-tag {
+      font-size: 0.76rem;
+      color: #d2def0;
+      background: #1a2a40;
+      border: 1px solid #324966;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-weight: 600;
+    }
+
+    .display-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .display-section {
+      border: 1px solid #2a3a55;
+      background: #0f1826;
+      border-radius: 12px;
+      padding: 11px;
+    }
+
+    .display-section h3 {
+      margin: 0 0 10px;
+      font-size: 0.97rem;
+    }
+
+    label {
+      display: block;
+      margin: 0 0 5px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    input,
+    textarea,
+    button,
+    select {
+      font: inherit;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid #31455f;
+      border-radius: 10px;
+      padding: 10px 11px;
+      color: var(--ink);
+      background: #0f1a2a;
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus,
+    button:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--accent) 65%, white 35%);
+      outline-offset: 1px;
+      border-color: var(--accent);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      align-items: center;
+    }
+
+    .actions-split {
+      justify-content: space-between;
+    }
+
+    .actions-split .left,
+    .actions-split .right {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      border-radius: 10px;
+      border: 1px solid transparent;
+      padding: 9px 12px;
+      font-weight: 700;
+      font-size: 0.87rem;
+      cursor: pointer;
+      transition: transform 0.12s ease, filter 0.14s ease;
+    }
+
+    button:hover { filter: brightness(1.03); }
+    button:active { transform: translateY(1px); }
+
+    .primary { background: var(--accent); color: #fff; }
+    .primary:hover { background: var(--accent-strong); }
+
+    .ghost {
+      background: #1a273c;
+      border-color: #324b69;
+      color: #d8e5f6;
+    }
+
+    .danger {
+      background: var(--danger-bg);
+      border-color: var(--danger-line);
+      color: var(--danger-ink);
+    }
+
+    .chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+
+    .chip {
+      border: 1px solid #324867;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      padding: 4px 9px;
+      background: #1a273c;
+      color: #d2def0;
+    }
+
+    .chip.online {
+      background: var(--ok-bg);
+      border-color: var(--ok-line);
+      color: var(--ok-ink);
+    }
+
+    .chip.offline {
+      background: var(--danger-bg);
+      border-color: var(--danger-line);
+      color: var(--danger-ink);
+    }
+
+    .status-meta {
+      display: grid;
+      gap: 4px;
+      font-size: 0.83rem;
+      color: var(--muted);
+    }
+
+    .status-meta strong {
+      color: #d5e2f5;
+    }
+
+    .log {
+      border: 1px dashed #d6c5ab;
+      border-radius: 10px;
+      background: #0f1a2a;
+      padding: 9px;
+      min-height: 44px;
+      font-size: 0.83rem;
+      white-space: pre-wrap;
+      color: #d5e2f5;
+      margin-top: 10px;
+    }
+
+    .liveview-frame {
+      width: 100%;
+      height: 220px;
+      border: 1px solid #324965;
+      border-radius: 10px;
+      background: #000;
+    }
+
+    .liveview-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin: 10px 0 8px;
+    }
+
+    .liveview-row a {
+      font-size: 0.82rem;
+      color: #67e8f9;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .liveview-row a:hover { text-decoration: underline; }
+
+    .inputs-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .inputs-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .input-card {
+      border: 1px solid #2c3e5a;
+      border-radius: 12px;
+      background: #0f1a2a;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .input-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      border-bottom: 1px dashed #344b69;
+      padding-bottom: 8px;
+    }
+
+    .input-card-meta {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .type-pill {
+      font-size: 0.73rem;
+      font-weight: 700;
+      border-radius: 999px;
+      border: 1px solid #324966;
+      background: #1a273c;
+      color: #d5e2f5;
+      padding: 3px 8px;
+    }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 160px;
+      gap: 8px;
+    }
+
+    .row-3 {
+      display: grid;
+      grid-template-columns: 1fr 120px 140px;
+      gap: 8px;
+    }
+
+    .preview {
+      border: 1px solid #304663;
+      border-radius: 10px;
+      background: #111e30;
+      padding: 7px 9px;
+      font-size: 0.8rem;
+      color: #bdd0e8;
+      min-height: 36px;
+    }
+
+    .topic-browser {
+      border: 1px solid #2f4664;
+      border-radius: 10px;
+      background: #0c1523;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 8px;
+    }
+
+    .topic-nav-grid {
+      border: 1px solid #2d425f;
+      border-radius: 9px;
+      background: #0f1a2a;
+      padding: 8px;
+      display: grid;
+      gap: 7px;
+      align-content: start;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .topic-nav-row {
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .topic-nav-row label {
+      margin: 0;
+      font-size: 0.75rem;
+      color: #a7bdd7;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .topic-nav-row select {
+      width: 100%;
+      border: 1px solid #365070;
+      border-radius: 8px;
+      background: #111c2c;
+      color: #e2ebf9;
+      padding: 7px 9px;
+    }
+
+    .topic-nav-hint {
+      font-size: 0.74rem;
+      color: #8ea6c2;
+    }
+
+    .topic-detail {
+      border: 1px solid #2d425f;
+      border-radius: 9px;
+      background: #101b2b;
+      padding: 8px;
+      display: grid;
+      gap: 8px;
+      min-height: 220px;
+      align-content: start;
+    }
+
+    .topic-detail code {
+      display: block;
+      border: 1px solid #304663;
+      background: #0b1421;
+      border-radius: 7px;
+      padding: 7px;
+      color: #bbd0ea;
+      font-size: 0.74rem;
+      word-break: break-all;
+      white-space: pre-wrap;
+      max-height: 110px;
+      overflow: auto;
+    }
+
+    .key-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .key-chip {
+      border: 1px solid #365173;
+      background: #17253a;
+      color: #d6e3f5;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 0.73rem;
+      cursor: pointer;
+    }
+
+    .key-chip.active {
+      border-color: #14b8a6;
+      color: #b9fff8;
+      background: #114147;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    @media (max-width: 820px) {
+      .row-2,
+      .row-3,
+      .topic-browser {
+        grid-template-columns: 1fr;
+      }
+      .topic-nav-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      body { padding: 10px; }
+      .actions button { width: 100%; }
+      .actions-split .left,
+      .actions-split .right { width: 100%; }
+      .liveview-frame { height: 200px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <h1>AWTRIX Bridge MVP</h1>
+      <p>Display 1 mit konfigurierbaren Input-Bausteinen.</p>
+    </section>
+
+    <section class="display-block" id="displayBlock1">
+      <div class="display-head">
+        <h2>Display 1</h2>
+        <span class="display-tag">Input-Bausteine</span>
+      </div>
+
+      <div class="display-stack">
+        <section class="display-section">
+          <h3>Display-Konfiguration</h3>
+
+          <label for="displayIp">Display-IP</label>
+          <input id="displayIp" type="text" inputmode="decimal" placeholder="192.168.3.126" autocomplete="off" />
+
+          <div class="actions">
+            <button id="statusBtn" class="ghost" type="button">Status prüfen</button>
+            <button id="saveIpBtn" class="ghost" type="button">IP speichern</button>
+            <button id="clearBtn" class="danger" type="button">Display clearen</button>
+          </div>
+
+          <div class="chips">
+            <span id="statusChip" class="chip">Status unbekannt</span>
+            <span id="apiChip" class="chip">API: nicht geprüft</span>
+          </div>
+
+          <div id="statusMeta" class="status-meta">
+            <div><strong>Version:</strong> -</div>
+            <div><strong>Aktive App:</strong> -</div>
+            <div><strong>Signal:</strong> -</div>
+            <div><strong>Matrix:</strong> -</div>
+          </div>
+
+          <div class="liveview-row">
+            <a id="openLiveLink" href="#" target="_blank" rel="noopener noreferrer">Livebild öffnen</a>
+          </div>
+          <iframe id="liveFrame" class="liveview-frame" title="AWTRIX Livebild"></iframe>
+        </section>
+
+        <section class="display-section">
+          <div class="inputs-head">
+            <h3 style="margin:0;">Input-Bausteine</h3>
+            <div class="actions" style="margin:0;">
+              <button id="addTextBlockBtn" class="ghost" type="button">+ Text</button>
+              <button id="addMqttBlockBtn" class="ghost" type="button">+ MQTT</button>
+            </div>
+          </div>
+
+          <div id="inputsContainer" class="inputs-list"></div>
+          <div id="actionLog" class="log">Bereit.</div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const DEFAULT_DISPLAY_IP = "192.168.3.126";
+    const DEFAULT_MQTT_BROKER = "192.168.3.8";
+    const LEGACY_CUSTOM_APP = "webtext";
+    const LS_DISPLAY_IP = "awtrix_display_ip";
+    const LS_INPUT_BLOCKS = "awtrix_input_blocks_v2";
+    const PRESET_MQTT_BLOCK_ID = "preset-mqtt-balance";
+
+    const DISPLAY_MODE_OPTIONS = [
+      ["1", "1s"], ["2", "2s"], ["3", "3s"], ["4", "4s"], ["5", "5s"],
+      ["6", "6s"], ["7", "7s"], ["8", "8s"], ["9", "9s"], ["10", "10s"],
+      ["until-change", "bis wertänderung"]
+    ];
+    const AUTO_MODE_OPTIONS = [
+      ["realtime", "real time"],
+      ["1", "1s"], ["2", "2s"], ["3", "3s"], ["4", "4s"], ["5", "5s"],
+      ["6", "6s"], ["7", "7s"], ["8", "8s"], ["9", "9s"], ["10", "10s"],
+      ["off", "off"]
+    ];
+    const AUTO_STALE_OPTIONS = [
+      ["0", "off"],
+      ["500", "0.5s"],
+      ["1000", "1s"],
+      ["1500", "1.5s"],
+      ["2000", "2s"],
+      ["2500", "2.5s"],
+      ["5000", "5s"],
+      ["10000", "10s"]
+    ];
+    const AUTO_MAX_STALE_MS = 2500;
+
+    const displayIpEl = document.getElementById("displayIp");
+    const statusChip = document.getElementById("statusChip");
+    const apiChip = document.getElementById("apiChip");
+    const statusMeta = document.getElementById("statusMeta");
+    const actionLog = document.getElementById("actionLog");
+
+    const liveFrame = document.getElementById("liveFrame");
+    const openLiveLink = document.getElementById("openLiveLink");
+
+    const statusBtn = document.getElementById("statusBtn");
+    const saveIpBtn = document.getElementById("saveIpBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    
+    const addTextBlockBtn = document.getElementById("addTextBlockBtn");
+    const addMqttBlockBtn = document.getElementById("addMqttBlockBtn");
+    const inputsContainer = document.getElementById("inputsContainer");
+
+    const state = {
+      inputBlocks: [],
+      topicCache: {},
+      autoRunners: {},
+      autoLastValue: {},
+      autoLastMessageNo: {},
+      mqttHoldByBlock: {}
+    };
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function normalizeIp(value) {
+      let ip = (value || "").trim();
+      ip = ip.replace(/^https?:\/\//i, "");
+      ip = ip.replace(/\/$/, "");
+      return ip;
+    }
+
+    function getDisplayIp() {
+      const ip = normalizeIp(displayIpEl.value);
+      if (!ip) {
+        throw new Error("Bitte eine Display-IP eintragen.");
+      }
+      return ip;
+    }
+
+    function apiUrl(path) {
+      return `http://${getDisplayIp()}${path}`;
+    }
+
+    function bridgeBaseUrl() {
+      return `http://${window.location.hostname}:8090`;
+    }
+
+    function setLog(message, level = "info") {
+      actionLog.textContent = message;
+      if (level === "ok") {
+        actionLog.style.color = "#166534";
+      } else if (level === "error") {
+        actionLog.style.color = "#991b1b";
+      } else {
+        actionLog.style.color = "#334155";
+      }
+    }
+
+    function setStatusOffline(message) {
+      statusChip.textContent = "Display offline";
+      statusChip.className = "chip offline";
+      apiChip.textContent = "API: Fehler";
+      apiChip.className = "chip offline";
+      statusMeta.innerHTML = `<div><strong>Hinweis:</strong> ${message}</div>`;
+    }
+
+    function setStatusOnline(stats) {
+      statusChip.textContent = "Display online";
+      statusChip.className = "chip online";
+      apiChip.textContent = "API: erreichbar";
+      apiChip.className = "chip online";
+
+      statusMeta.innerHTML = `
+        <div><strong>Version:</strong> ${stats.version || "-"}</div>
+        <div><strong>Aktive App:</strong> ${stats.app || "-"}</div>
+        <div><strong>Signal:</strong> ${typeof stats.wifi_signal === "number" ? `${stats.wifi_signal} dBm` : "-"}</div>
+        <div><strong>Matrix:</strong> ${stats.matrix ? "an" : "aus"}</div>
+      `;
+    }
+
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 9000) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    async function postJson(path, payload) {
+      const res = await fetchWithTimeout(apiUrl(path), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} bei ${path}`);
+      }
+      return res;
+    }
+
+    async function postEmpty(path) {
+      const res = await fetchWithTimeout(apiUrl(path), {
+        method: "POST",
+        body: ""
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} bei ${path}`);
+      }
+      return res;
+    }
+
+    async function postBridge(path, payload) {
+      const res = await fetchWithTimeout(`${bridgeBaseUrl()}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }, 20000);
+
+      let body;
+      try {
+        body = await res.json();
+      } catch (_) {
+        throw new Error(`Bridge-Antwort ungültig (HTTP ${res.status}).`);
+      }
+
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || `Bridge-Fehler (HTTP ${res.status}).`);
+      }
+      return body.result;
+    }
+
+    function updateLiveView(forceReload = false) {
+      let ip;
+      try {
+        ip = getDisplayIp();
+      } catch (_) {
+        return;
+      }
+
+      const base = `http://${ip}/screen`;
+      const src = forceReload ? `${base}?t=${Date.now()}` : base;
+      liveFrame.src = src;
+      openLiveLink.href = base;
+    }
+
+    async function checkStatus() {
+      let ip;
+      try {
+        ip = getDisplayIp();
+      } catch (error) {
+        setLog(error.message, "error");
+        return;
+      }
+
+      setLog(`Prüfe Status von ${ip} ...`);
+
+      try {
+        const res = await fetchWithTimeout(apiUrl("/api/stats"));
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const stats = await res.json();
+        setStatusOnline(stats);
+        setLog(`Status ok (${stats.version || "unbekannt"}).`, "ok");
+      } catch (error) {
+        setStatusOffline(`Keine gültige Antwort von ${ip}. (${error.message})`);
+        setLog(`Statusprüfung fehlgeschlagen: ${error.message}`, "error");
+      }
+
+      updateLiveView(true);
+    }
+
+    async function clearDisplay() {
+      let ip;
+      try {
+        ip = getDisplayIp();
+      } catch (error) {
+        setLog(error.message, "error");
+        return;
+      }
+
+      setLog(`Leere Display-Inhalt auf ${ip} ...`);
+
+      try {
+        await postEmpty("/api/notify/dismiss");
+        await postEmpty(`/api/custom?name=${encodeURIComponent(LEGACY_CUSTOM_APP)}`);
+        await postJson("/api/notify", {
+          text: " ",
+          background: "#000000",
+          noScroll: true,
+          duration: 1,
+          stack: false
+        });
+        await sleep(1100);
+        await postEmpty("/api/notify/dismiss");
+
+        setLog("Display geleert.", "ok");
+        updateLiveView(true);
+        await checkStatus();
+      } catch (error) {
+        setLog(`Clear fehlgeschlagen: ${error.message}`, "error");
+      }
+    }
+
+    function saveDisplayIp() {
+      const ip = normalizeIp(displayIpEl.value);
+      if (!ip) {
+        setLog("Leere IP kann nicht gespeichert werden.", "error");
+        return;
+      }
+      localStorage.setItem(LS_DISPLAY_IP, ip);
+      displayIpEl.value = ip;
+      updateLiveView(true);
+      setLog(`Display-IP gespeichert: ${ip}`, "ok");
+    }
+
+    function uid() {
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function hasModeOption(options, value) {
+      const selected = String(value || "");
+      return options.some(([opt]) => opt === selected);
+    }
+
+    function fallbackDisplayModeFromDuration(duration) {
+      if (Number.isFinite(Number(duration))) {
+        return String(Math.min(10, Math.max(1, Number(duration))));
+      }
+      return "8";
+    }
+
+    function normalizeDisplayMode(value, fallbackDuration = null) {
+      if (hasModeOption(DISPLAY_MODE_OPTIONS, value)) {
+        return String(value);
+      }
+      if (fallbackDuration !== null) {
+        return fallbackDisplayModeFromDuration(fallbackDuration);
+      }
+      return "8";
+    }
+
+    function normalizeAutoMode(value) {
+      if (hasModeOption(AUTO_MODE_OPTIONS, value)) {
+        return String(value);
+      }
+      return "off";
+    }
+
+    function normalizeMaxStaleMs(value) {
+      if (hasModeOption(AUTO_STALE_OPTIONS, value)) {
+        return String(value);
+      }
+      return String(AUTO_MAX_STALE_MS);
+    }
+
+    function renderModeOptions(options, selectedValue) {
+      const selected = String(selectedValue || "");
+      return options.map(([value, label]) => (
+        `<option value="${esc(value)}" ${selected === value ? "selected" : ""}>${esc(label)}</option>`
+      )).join("");
+    }
+
+    function defaultTextBlock() {
+      return {
+        id: uid(),
+        type: "text",
+        title: "Text",
+        text: "",
+        duration: 8
+      };
+    }
+
+    function defaultMqttBlock() {
+      return {
+        id: uid(),
+        type: "mqtt",
+        title: "MQTT",
+        brokerHost: DEFAULT_MQTT_BROKER,
+        brokerPort: 1883,
+        topic: "",
+        jsonKey: "",
+        template: "{value}",
+        duration: 8,
+        timeout: 4,
+        displayMode: "8",
+        autoMode: "off",
+        maxStaleMs: String(AUTO_MAX_STALE_MS),
+        topicSearch: "",
+        preview: ""
+      };
+    }
+
+    function presetBalanceMqttBlock() {
+      return {
+        id: PRESET_MQTT_BLOCK_ID,
+        type: "mqtt",
+        title: "MQTT Balance",
+        brokerHost: DEFAULT_MQTT_BROKER,
+        brokerPort: 1883,
+        topic: "trading-deluxxe/webapp/status/balance",
+        jsonKey: "",
+        template: "Balance: {value}",
+        duration: 8,
+        timeout: 4,
+        displayMode: "8",
+        autoMode: "off",
+        maxStaleMs: String(AUTO_MAX_STALE_MS),
+        topicSearch: "",
+        preview: ""
+      };
+    }
+
+    function ensurePresetBalanceBlock() {
+      const existing = state.inputBlocks.find((b) => b.id === PRESET_MQTT_BLOCK_ID);
+      if (!existing) {
+        const preset = presetBalanceMqttBlock();
+        const seed = state.inputBlocks.find((b) => b.type === "mqtt" && String(b.topic || "").trim());
+        if (seed) {
+          preset.topic = String(seed.topic || "").trim();
+          preset.brokerHost = normalizeIp(seed.brokerHost || "") || DEFAULT_MQTT_BROKER;
+          preset.brokerPort = Number(seed.brokerPort) || 1883;
+        }
+        state.inputBlocks.unshift(preset);
+        return;
+      }
+
+      existing.type = "mqtt";
+      if (!existing.title) {
+        existing.title = "MQTT Balance";
+      }
+      if (!normalizeIp(existing.brokerHost || "")) {
+        existing.brokerHost = DEFAULT_MQTT_BROKER;
+      }
+      if (!Number.isFinite(Number(existing.brokerPort))) {
+        existing.brokerPort = 1883;
+      }
+      if (!existing.jsonKey) {
+        existing.jsonKey = "";
+      }
+      if (!String(existing.topic || "").trim()) {
+        existing.topic = "trading-deluxxe/webapp/status/balance";
+      }
+      if (!existing.template) {
+        existing.template = "Balance: {value}";
+      }
+      if (!Number.isFinite(Number(existing.duration))) {
+        existing.duration = 8;
+      }
+      if (!Number.isFinite(Number(existing.timeout))) {
+        existing.timeout = 4;
+      }
+      existing.displayMode = normalizeDisplayMode(existing.displayMode);
+      existing.autoMode = normalizeAutoMode(existing.autoMode);
+      existing.maxStaleMs = normalizeMaxStaleMs(existing.maxStaleMs);
+      if (typeof existing.topicSearch !== "string") {
+        existing.topicSearch = "";
+      }
+      if (typeof existing.preview !== "string") {
+        existing.preview = "";
+      }
+    }
+
+    function loadInputBlocks() {
+      try {
+        const raw = localStorage.getItem(LS_INPUT_BLOCKS);
+        if (!raw) {
+          state.inputBlocks = [defaultTextBlock()];
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          state.inputBlocks = [defaultTextBlock()];
+          return;
+        }
+
+        state.inputBlocks = parsed
+          .filter((b) => b && (b.type === "text" || b.type === "mqtt"))
+          .map((b) => {
+            if (b.type === "text") {
+              return {
+                id: b.id || uid(),
+                type: "text",
+                title: typeof b.title === "string" ? b.title : "Text",
+                text: typeof b.text === "string" ? b.text : "",
+                duration: Number.isFinite(Number(b.duration)) ? Number(b.duration) : 8
+              };
+            }
+            return {
+              id: b.id || uid(),
+              type: "mqtt",
+              title: typeof b.title === "string" ? b.title : "MQTT",
+              brokerHost: typeof b.brokerHost === "string" && b.brokerHost ? b.brokerHost : DEFAULT_MQTT_BROKER,
+              brokerPort: Number.isFinite(Number(b.brokerPort)) ? Number(b.brokerPort) : 1883,
+              topic: typeof b.topic === "string" ? b.topic : "",
+              jsonKey: typeof b.jsonKey === "string" ? b.jsonKey : "",
+              template: typeof b.template === "string" && b.template ? b.template : "{value}",
+              duration: Number.isFinite(Number(b.duration)) ? Number(b.duration) : 8,
+              timeout: Number.isFinite(Number(b.timeout)) ? Number(b.timeout) : 4,
+              displayMode: normalizeDisplayMode(b.displayMode, b.duration),
+              autoMode: normalizeAutoMode(b.autoMode),
+              maxStaleMs: normalizeMaxStaleMs(b.maxStaleMs),
+              topicSearch: typeof b.topicSearch === "string" ? b.topicSearch : "",
+              preview: typeof b.preview === "string" ? b.preview : ""
+            };
+          });
+
+        if (state.inputBlocks.length === 0) {
+          state.inputBlocks = [defaultTextBlock()];
+        }
+      } catch (_) {
+        state.inputBlocks = [defaultTextBlock()];
+      }
+    }
+
+    function saveInputBlocks() {
+      localStorage.setItem(LS_INPUT_BLOCKS, JSON.stringify(state.inputBlocks));
+    }
+
+    function esc(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function brokerKey(block) {
+      const host = normalizeIp(block.brokerHost || "");
+      const port = Number(block.brokerPort) || 1883;
+      return `${host}:${port}`;
+    }
+
+    function topicItemsForBlock(block) {
+      return state.topicCache[brokerKey(block)] || [];
+    }
+
+    function upsertTopicCacheItem(block, topic, sample, jsonKeys = []) {
+      const key = brokerKey(block);
+      const list = state.topicCache[key] || [];
+      const map = new Map(list.map((item) => [String(item.topic || ""), item]));
+      const topicName = String(topic || "").trim();
+      if (!topicName) return;
+      map.set(topicName, {
+        topic: topicName,
+        sample: String(sample || ""),
+        json_keys: Array.isArray(jsonKeys) ? jsonKeys.map((k) => String(k)) : []
+      });
+      state.topicCache[key] = Array.from(map.values()).sort((a, b) => String(a.topic).localeCompare(String(b.topic)));
+    }
+
+    function splitTopic(topic) {
+      return String(topic || "").split("/").map((p) => p.trim()).filter(Boolean);
+    }
+
+    function queryFilteredTopicItems(block) {
+      const items = topicItemsForBlock(block);
+      const query = String(block.topicSearch || "").trim().toLowerCase();
+      if (!query) {
+        return items;
+      }
+      return items.filter((item) => {
+        const topic = String(item.topic || "").toLowerCase();
+        const sample = String(item.sample || "").toLowerCase();
+        const keys = (item.json_keys || []).map((k) => String(k).toLowerCase()).join(" ");
+        return topic.includes(query) || sample.includes(query) || keys.includes(query);
+      });
+    }
+
+    function topicItemByName(block, topic) {
+      const t = String(topic || "").trim();
+      if (!t) return null;
+      return topicItemsForBlock(block).find((item) => item.topic === t) || null;
+    }
+
+    function nextLevelOptions(items, prefixSegments) {
+      const depth = prefixSegments.length;
+      const set = new Set();
+      for (const item of items) {
+        const segs = splitTopic(item.topic);
+        if (segs.length <= depth) continue;
+        let matches = true;
+        for (let i = 0; i < prefixSegments.length; i += 1) {
+          if (segs[i] !== prefixSegments[i]) {
+            matches = false;
+            break;
+          }
+        }
+        if (!matches) continue;
+        set.add(segs[depth]);
+      }
+      return [...set].sort((a, b) => a.localeCompare(b));
+    }
+
+    function selectedKeyValueFromSample(item, keyPath) {
+      if (!item) return null;
+      if (!keyPath) return item.sample || "";
+      try {
+        const parsed = JSON.parse(String(item.sample || ""));
+        const selected = pathValue(parsed, keyPath);
+        if (selected === undefined) return "(Key nicht im Sample)";
+        if (typeof selected === "object") return JSON.stringify(selected);
+        return String(selected);
+      } catch (_) {
+        return "(Sample ist kein JSON)";
+      }
+    }
+
+    function renderTopicBrowser(block) {
+      const items = topicItemsForBlock(block);
+      const query = String(block.topicSearch || "").trim().toLowerCase();
+      const queryHits = query ? queryFilteredTopicItems(block).length : 0;
+      const selectedSegments = splitTopic(block.topic);
+      const navRows = [];
+      const activeSegments = [];
+
+      for (let depth = 0; depth < 12; depth += 1) {
+        const options = nextLevelOptions(items, activeSegments);
+        if (options.length === 0) break;
+
+        const current = selectedSegments[depth] && options.includes(selectedSegments[depth]) ? selectedSegments[depth] : "";
+        const optsHtml = options.map((opt) => `<option value="${esc(opt)}" ${current === opt ? "selected" : ""}>${esc(opt)}</option>`).join("");
+
+        navRows.push(`
+          <div class="topic-nav-row">
+            <label>Level ${depth + 1}</label>
+            <select data-action="select-topic-segment" data-id="${esc(block.id)}" data-depth="${depth}">
+              <option value="">-- wählen --</option>
+              ${optsHtml}
+            </select>
+          </div>
+        `);
+
+        if (!current) break;
+        activeSegments.push(current);
+      }
+
+      const resolvedTopic = activeSegments.join("/");
+      const selected = topicItemByName(block, resolvedTopic) || topicItemByName(block, block.topic) || null;
+
+      let candidateKeys = [];
+      if (selected) {
+        candidateKeys = [...(selected.json_keys || [])];
+        try {
+          const parsed = JSON.parse(String(selected.sample || ""));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            candidateKeys = [...new Set([...candidateKeys, ...Object.keys(parsed)])].slice(0, 30);
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      const keysHtml = candidateKeys.length
+        ? candidateKeys.map((key) => {
+            const active = String(block.jsonKey || "") === key ? "active" : "";
+            return `<button class="key-chip ${active}" type="button" data-action="pick-json-key" data-id="${esc(block.id)}" data-key="${esc(key)}">${esc(key)}</button>`;
+          }).join("")
+        : `<div class="muted">Keine JSON-Keys erkannt.</div>`;
+
+      const sampleText = selected ? String(selected.sample || "") : "";
+      const keyPreview = selectedKeyValueFromSample(selected, String(block.jsonKey || "").trim());
+      const navHint = query
+        ? `${items.length} Topics gesamt · ${queryHits} Suchtreffer`
+        : `${items.length} Topics gesamt`;
+
+      return `
+        <div class="topic-browser">
+          <div class="topic-nav-grid">
+            ${navRows.join("") || `<div class="muted">Keine Topics verfügbar.</div>`}
+            <div class="topic-nav-hint">${esc(navHint)}</div>
+          </div>
+          <div class="topic-detail">
+            <div class="muted"><strong>Aktuelles Topic</strong></div>
+            <code>${esc(resolvedTopic || block.topic || "-")}</code>
+            <div class="muted"><strong>Payload-Sample</strong></div>
+            <code>${esc(sampleText || "-")}</code>
+            <div class="muted"><strong>JSON-Key auswählen</strong></div>
+            <div class="key-chips">${keysHtml}</div>
+            <div class="muted"><strong>Wert-Vorschau</strong></div>
+            <code>${esc(String(keyPreview || "-"))}</code>
+          </div>
+        </div>
+      `;
+    }
+
+    function refreshTopicBrowser(blockId) {
+      const block = findBlock(blockId);
+      if (!block || block.type !== "mqtt") return;
+      const el = document.getElementById(`topic-browser-${block.id}`);
+      if (!el) return;
+      el.innerHTML = renderTopicBrowser(block);
+    }
+
+    function renderTextBlock(block, idx) {
+      return `
+        <article class="input-card" data-id="${esc(block.id)}">
+          <div class="input-card-head">
+            <div class="input-card-meta">
+              <span class="type-pill">TEXT</span>
+              <strong>#${idx + 1}</strong>
+            </div>
+            <button class="danger" type="button" data-action="delete-block" data-id="${esc(block.id)}">Löschen</button>
+          </div>
+
+          <div class="row-2">
+            <div>
+              <label>Name</label>
+              <input data-id="${esc(block.id)}" data-field="title" value="${esc(block.title)}" />
+            </div>
+            <div>
+              <label>Dauer (s)</label>
+              <input type="number" min="1" max="120" data-id="${esc(block.id)}" data-field="duration" value="${esc(block.duration)}" />
+            </div>
+          </div>
+
+          <div>
+            <label>Text</label>
+            <textarea data-id="${esc(block.id)}" data-field="text">${esc(block.text)}</textarea>
+          </div>
+
+          <div class="actions" style="margin-top:0;">
+            <button class="primary" type="button" data-action="send-text" data-id="${esc(block.id)}">Senden</button>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderMqttBlock(block, idx) {
+      const items = topicItemsForBlock(block);
+      const syncInfo = items.length > 0 ? `${items.length} Topics im Cache` : "Noch keine Topics synchronisiert";
+
+      return `
+        <article class="input-card" data-id="${esc(block.id)}">
+          <div class="input-card-head">
+            <div class="input-card-meta">
+              <span class="type-pill">MQTT</span>
+              <strong>#${idx + 1}</strong>
+            </div>
+            <button class="danger" type="button" data-action="delete-block" data-id="${esc(block.id)}">Löschen</button>
+          </div>
+
+          <div class="row-3">
+            <div>
+              <label>Name</label>
+              <input data-id="${esc(block.id)}" data-field="title" value="${esc(block.title)}" />
+            </div>
+            <div>
+              <label>Anzeigezeit</label>
+              <select data-id="${esc(block.id)}" data-field="displayMode">
+                ${renderModeOptions(DISPLAY_MODE_OPTIONS, block.displayMode || "8")}
+              </select>
+            </div>
+            <div>
+              <label>Auto senden</label>
+              <select data-id="${esc(block.id)}" data-field="autoMode">
+                ${renderModeOptions(AUTO_MODE_OPTIONS, block.autoMode || "off")}
+              </select>
+            </div>
+          </div>
+
+          <div class="row-2">
+            <div>
+              <label>Stale-Guard</label>
+              <select data-id="${esc(block.id)}" data-field="maxStaleMs">
+                ${renderModeOptions(AUTO_STALE_OPTIONS, block.maxStaleMs || String(AUTO_MAX_STALE_MS))}
+              </select>
+            </div>
+            <div class="muted" style="align-self:end;">ältere MQTT-Werte werden verworfen</div>
+          </div>
+
+          <div class="row-3">
+            <div>
+              <label>Broker-IP</label>
+              <input data-id="${esc(block.id)}" data-field="brokerHost" value="${esc(block.brokerHost)}" placeholder="192.168.3.8" />
+            </div>
+            <div>
+              <label>Port</label>
+              <input type="number" min="1" max="65535" data-id="${esc(block.id)}" data-field="brokerPort" value="${esc(block.brokerPort)}" />
+            </div>
+            <div>
+              <label>Timeout (s)</label>
+              <input type="number" min="1" max="20" data-id="${esc(block.id)}" data-field="timeout" value="${esc(block.timeout)}" />
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top:6px;">
+            <button class="ghost" type="button" data-action="sync-topics" data-id="${esc(block.id)}">1) Topics synchronisieren</button>
+            <span class="muted">${esc(syncInfo)}</span>
+          </div>
+
+          <div class="row-2">
+            <div>
+              <label>Topic-Suche</label>
+              <input data-id="${esc(block.id)}" data-field="topicSearch" value="${esc(block.topicSearch || "")}" placeholder="suche nach topic / key / payload" />
+            </div>
+            <div>
+              <label>Gewähltes Topic</label>
+              <input data-id="${esc(block.id)}" data-field="topic" value="${esc(block.topic)}" placeholder="wird vom Browser gesetzt" />
+            </div>
+          </div>
+
+          <div id="topic-browser-${esc(block.id)}">${renderTopicBrowser(block)}</div>
+
+          <div class="row-2">
+            <div>
+              <label>JSON-Key (optional)</label>
+              <input data-id="${esc(block.id)}" data-field="jsonKey" value="${esc(block.jsonKey)}" placeholder="balance" />
+            </div>
+            <div>
+              <label>Anzeige-Template</label>
+              <input data-id="${esc(block.id)}" data-field="template" value="${esc(block.template)}" placeholder="Balance: {value}" />
+            </div>
+          </div>
+
+          <div class="preview">Letzter Wert: <code id="mqtt-preview-${esc(block.id)}">${esc(block.preview || "-")}</code></div>
+
+          <div class="actions actions-split" style="margin-top:0;">
+            <div class="left">
+              <button class="ghost" type="button" data-action="fetch-topic" data-id="${esc(block.id)}">2) Wert laden</button>
+            </div>
+            <div class="right">
+              <button class="primary" type="button" data-action="send-mqtt" data-id="${esc(block.id)}">3) Wert ans Display</button>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderInputBlocks() {
+      if (state.inputBlocks.length === 0) {
+        inputsContainer.innerHTML = "<div class='muted'>Noch keine Input-Bausteine.</div>";
+        return;
+      }
+
+      inputsContainer.innerHTML = state.inputBlocks
+        .map((block, idx) => (block.type === "mqtt" ? renderMqttBlock(block, idx) : renderTextBlock(block, idx)))
+        .join("");
+    }
+
+    function findBlock(blockId) {
+      return state.inputBlocks.find((b) => b.id === blockId);
+    }
+
+    function updateMqttPreview(blockId, value) {
+      const el = document.getElementById(`mqtt-preview-${blockId}`);
+      if (el) {
+        el.textContent = String(value ?? "-");
+      }
+    }
+
+    function updateBlockField(blockId, field, value) {
+      const block = findBlock(blockId);
+      if (!block) {
+        return;
+      }
+
+      if (["duration", "brokerPort", "timeout"].includes(field)) {
+        block[field] = Number(value);
+      } else if (field === "maxStaleMs") {
+        block[field] = normalizeMaxStaleMs(value);
+      } else {
+        block[field] = value;
+      }
+
+      saveInputBlocks();
+    }
+
+    async function sendNotificationText(text, duration) {
+      await postJson("/api/notify", {
+        text,
+        duration,
+        textCase: 2,
+        center: true,
+        stack: false,
+        wakeup: true
+      });
+    }
+
+    async function sendTextBlock(blockId) {
+      const block = findBlock(blockId);
+      if (!block) {
+        return;
+      }
+
+      const text = String(block.text || "").trim();
+      const duration = Number(block.duration);
+      if (!text) {
+        setLog("Text-Baustein: Text fehlt.", "error");
+        return;
+      }
+      if (!Number.isFinite(duration) || duration < 1 || duration > 120) {
+        setLog("Text-Baustein: Dauer muss 1-120 Sekunden sein.", "error");
+        return;
+      }
+
+      try {
+        await sendNotificationText(text, duration);
+        setLog(`${block.title || "Text"}: gesendet.`, "ok");
+        updateLiveView(true);
+        await checkStatus();
+      } catch (error) {
+        setLog(`${block.title || "Text"}: Senden fehlgeschlagen (${error.message}).`, "error");
+      }
+    }
+
+    function pathValue(obj, path) {
+      if (!path) {
+        return obj;
+      }
+      return path
+        .split(".")
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .reduce((acc, part) => {
+          if (acc === null || acc === undefined) {
+            return undefined;
+          }
+          if (Array.isArray(acc) && /^\d+$/.test(part)) {
+            return acc[Number(part)];
+          }
+          return acc[part];
+        }, obj);
+    }
+
+    function payloadTimestampMs(rawPayload) {
+      try {
+        const parsed = JSON.parse(String(rawPayload || ""));
+        if (!parsed || typeof parsed !== "object") {
+          return null;
+        }
+
+        if (typeof parsed.ts === "number" && Number.isFinite(parsed.ts)) {
+          return parsed.ts > 1e12 ? parsed.ts : parsed.ts * 1000;
+        }
+
+        if (typeof parsed.timestamp_utc === "string" && parsed.timestamp_utc) {
+          const ms = Date.parse(parsed.timestamp_utc);
+          return Number.isFinite(ms) ? ms : null;
+        }
+      } catch (_) {
+        // ignore parsing errors
+      }
+      return null;
+    }
+
+    async function fetchMqttValue(blockId, options = {}) {
+      const block = findBlock(blockId);
+      if (!block) {
+        throw new Error("MQTT-Baustein nicht gefunden.");
+      }
+
+      const brokerHost = normalizeIp(block.brokerHost || "");
+      const brokerPort = Number(block.brokerPort) || 1883;
+      const topic = String(block.topic || "").trim();
+      const timeoutRaw = options.timeoutOverride !== undefined ? options.timeoutOverride : block.timeout;
+      const timeout = Number(timeoutRaw) || 4;
+      const persist = options.persist !== false;
+      const rerender = options.rerender === true;
+      const fresh = options.fresh === true;
+      const withMeta = options.withMeta === true;
+
+      if (!brokerHost) {
+        throw new Error("Broker-IP fehlt.");
+      }
+      if (!topic) {
+        throw new Error("Topic fehlt.");
+      }
+
+      const result = await postBridge("/mqtt/topic/value", {
+        broker_host: brokerHost,
+        broker_port: brokerPort,
+        topic,
+        timeout_s: timeout,
+        fresh
+      });
+
+      const rawPayload = String(result.payload || "");
+      const keyPath = String(block.jsonKey || "").trim();
+
+      let value = rawPayload;
+      if (keyPath) {
+        let parsed;
+        try {
+          parsed = JSON.parse(rawPayload);
+        } catch (_) {
+          throw new Error("Payload ist kein JSON, aber JSON-Key wurde gesetzt.");
+        }
+        const selected = pathValue(parsed, keyPath);
+        if (selected === undefined) {
+          throw new Error(`JSON-Key '${keyPath}' nicht gefunden.`);
+        }
+        if (typeof selected === "object") {
+          value = JSON.stringify(selected);
+        } else {
+          value = String(selected);
+        }
+      }
+
+      const cacheKeys = [];
+      if (keyPath) {
+        cacheKeys.push(keyPath);
+      }
+      upsertTopicCacheItem(block, topic, rawPayload, cacheKeys);
+
+      block.preview = value;
+      if (persist) {
+        saveInputBlocks();
+      }
+      if (rerender) {
+        renderInputBlocks();
+      } else {
+        updateMqttPreview(block.id, value);
+      }
+
+      const receivedAtSec = Number(result.received_at || 0);
+      const receivedAtMs = Number.isFinite(receivedAtSec) && receivedAtSec > 0 ? receivedAtSec * 1000 : null;
+      const payloadTsMs = payloadTimestampMs(rawPayload);
+      const baseTs = payloadTsMs || receivedAtMs;
+      const ageMs = baseTs ? (Date.now() - baseTs) : null;
+      const messageNoRaw = Number(result.message_no || 0);
+      const messageNo = Number.isFinite(messageNoRaw) && messageNoRaw > 0 ? messageNoRaw : null;
+
+      if (withMeta) {
+        return {
+          value,
+          meta: {
+            source: String(result.source || ""),
+            stale: !!result.stale,
+            messageNo,
+            receivedAtMs,
+            payloadTsMs,
+            ageMs
+          }
+        };
+      }
+
+      return value;
+    }
+
+    function formatTemplate(template, value) {
+      const t = String(template || "").trim() || "{value}";
+      if (t.includes("{value}")) {
+        return t.replaceAll("{value}", value);
+      }
+      return `${t} ${value}`;
+    }
+
+    function mqttDisplayMode(block) {
+      return normalizeDisplayMode(block.displayMode);
+    }
+
+    async function sendMqttTextToDisplay(blockId, text) {
+      const block = findBlock(blockId);
+      if (!block || block.type !== "mqtt") {
+        throw new Error("MQTT-Baustein nicht gefunden.");
+      }
+
+      const mode = mqttDisplayMode(block);
+      if (mode === "until-change") {
+        await postJson("/api/notify", {
+          text,
+          textCase: 2,
+          center: true,
+          stack: false,
+          wakeup: true,
+          hold: true
+        });
+        state.mqttHoldByBlock[blockId] = true;
+        return;
+      }
+
+      const seconds = Number(mode);
+      await sendNotificationText(text, seconds);
+      state.mqttHoldByBlock[blockId] = false;
+    }
+
+    async function syncTopics(blockId) {
+      const block = findBlock(blockId);
+      if (!block) {
+        return;
+      }
+
+      const brokerHost = normalizeIp(block.brokerHost || "");
+      const brokerPort = Number(block.brokerPort) || 1883;
+      const timeout = Number(block.timeout) || 4;
+      const syncTimeout = Math.max(10, Math.min(25, timeout));
+
+      if (!brokerHost) {
+        setLog("MQTT-Baustein: Broker-IP fehlt.", "error");
+        return;
+      }
+
+      setLog(`${block.title || "MQTT"}: Topics werden synchronisiert (${syncTimeout}s) ...`);
+      try {
+        const result = await postBridge("/mqtt/topics/sync", {
+          broker_host: brokerHost,
+          broker_port: brokerPort,
+          timeout_s: syncTimeout,
+          max_topics: 60000
+        });
+        const key = `${brokerHost}:${brokerPort}`;
+        const current = state.topicCache[key] || [];
+        const merged = new Map();
+        for (const item of current) {
+          if (item && item.topic) merged.set(item.topic, item);
+        }
+        for (const item of (result.topics || [])) {
+          if (item && item.topic) merged.set(item.topic, item);
+        }
+        state.topicCache[key] = Array.from(merged.values()).sort((a, b) => String(a.topic).localeCompare(String(b.topic)));
+        renderInputBlocks();
+        setLog(`${block.title || "MQTT"}: ${result.count} Topics synchronisiert.`, "ok");
+      } catch (error) {
+        setLog(`${block.title || "MQTT"}: Topic-Sync fehlgeschlagen (${error.message}).`, "error");
+      }
+    }
+
+    function autoDelayMs(autoMode) {
+      if (autoMode === "realtime") return 120;
+      const sec = Number(autoMode);
+      if (Number.isFinite(sec) && sec >= 1 && sec <= 10) return sec * 1000;
+      return null;
+    }
+
+    function stopAutoPush(blockId) {
+      const runner = state.autoRunners[blockId];
+      if (runner) {
+        runner.active = false;
+        delete state.autoRunners[blockId];
+      }
+      delete state.autoLastMessageNo[blockId];
+    }
+
+    function startAutoPush(blockId) {
+      const block = findBlock(blockId);
+      if (!block || block.type !== "mqtt") return;
+
+      stopAutoPush(blockId);
+
+      const autoMode = String(block.autoMode || "off");
+      if (autoMode === "off") {
+        return;
+      }
+
+      if (state.autoLastValue[blockId] === undefined) {
+        state.autoLastValue[blockId] = String(block.preview || "");
+      }
+
+      const runner = { active: true };
+      state.autoRunners[blockId] = runner;
+
+      const loop = async () => {
+        if (!runner.active) return;
+        const current = findBlock(blockId);
+        if (!current || current.type !== "mqtt") {
+          stopAutoPush(blockId);
+          return;
+        }
+
+        const currentMode = String(current.autoMode || "off");
+        if (currentMode === "off") {
+          stopAutoPush(blockId);
+          return;
+        }
+
+        try {
+          const timeoutOverride = currentMode === "realtime" ? Math.max(Number(current.timeout) || 4, 12) : Math.max(Number(current.timeout) || 4, Number(currentMode) + 1);
+          const fetched = await fetchMqttValue(blockId, { timeoutOverride, persist: false, rerender: false, withMeta: true });
+          if (!runner.active) return;
+
+          const value = fetched && typeof fetched === "object" ? fetched.value : fetched;
+          const meta = fetched && typeof fetched === "object" ? (fetched.meta || {}) : {};
+          const messageNo = Number(meta.messageNo || 0);
+          const lastMessageNo = Number(state.autoLastMessageNo[blockId] || 0);
+
+          if (Number.isFinite(messageNo) && messageNo > 0 && messageNo <= lastMessageNo) {
+            // newer value already processed; drop outdated update
+          } else {
+            const ageMs = Number(meta.ageMs);
+            const maxStaleMsRaw = Number(current.maxStaleMs);
+            const maxStaleMs = Number.isFinite(maxStaleMsRaw) && maxStaleMsRaw >= 0
+              ? maxStaleMsRaw
+              : AUTO_MAX_STALE_MS;
+            if (maxStaleMs > 0 && Number.isFinite(ageMs) && ageMs > maxStaleMs) {
+              // value is too old -> skip display push
+            } else {
+              const normalized = String(value);
+              if (normalized !== String(state.autoLastValue[blockId] || "")) {
+                const text = formatTemplate(current.template, normalized);
+                await sendMqttTextToDisplay(blockId, text);
+                state.autoLastValue[blockId] = normalized;
+                setLog(`${current.title || "MQTT"}: Auto-Send (${text}).`, "ok");
+                updateLiveView(true);
+              }
+            }
+
+            if (Number.isFinite(messageNo) && messageNo > 0) {
+              state.autoLastMessageNo[blockId] = messageNo;
+            }
+          }
+        } catch (error) {
+          const msg = String(error && error.message ? error.message : error);
+          const isTimeout = msg.includes("No message received") || msg.includes("504") || msg.toLowerCase().includes("timeout");
+          if (!isTimeout) {
+            setLog(`${current.title || "MQTT"}: Auto-Fehler (${msg}).`, "error");
+          }
+        }
+
+        const delay = autoDelayMs(String((findBlock(blockId) || {}).autoMode || "off"));
+        if (delay === null || !runner.active) {
+          stopAutoPush(blockId);
+          return;
+        }
+        setTimeout(loop, delay);
+      };
+
+      setTimeout(loop, 80);
+    }
+
+    function restartAllAutoPushers() {
+      Object.keys(state.autoRunners).forEach((id) => stopAutoPush(id));
+      for (const block of state.inputBlocks) {
+        if (block.type === "mqtt") {
+          startAutoPush(block.id);
+        }
+      }
+    }
+
+    async function sendMqttBlock(blockId) {
+      const block = findBlock(blockId);
+      if (!block) {
+        return;
+      }
+
+      try {
+        setLog(`${block.title || "MQTT"}: lade Topic-Wert ...`);
+        const value = await fetchMqttValue(blockId);
+        const text = formatTemplate(block.template, value);
+        await sendMqttTextToDisplay(blockId, text);
+        setLog(`${block.title || "MQTT"}: Wert gesendet (${text}).`, "ok");
+        updateLiveView(true);
+        await checkStatus();
+      } catch (error) {
+        setLog(`${block.title || "MQTT"}: Senden fehlgeschlagen (${error.message}).`, "error");
+      }
+    }
+
+    function loadDefaults() {
+      const storedIp = localStorage.getItem(LS_DISPLAY_IP);
+      displayIpEl.value = storedIp || DEFAULT_DISPLAY_IP;
+      loadInputBlocks();
+      ensurePresetBalanceBlock();
+      saveInputBlocks();
+      renderInputBlocks();
+      restartAllAutoPushers();
+      updateLiveView(false);
+    }
+
+    statusBtn.addEventListener("click", checkStatus);
+    saveIpBtn.addEventListener("click", saveDisplayIp);
+    clearBtn.addEventListener("click", clearDisplay);
+
+    addTextBlockBtn.addEventListener("click", () => {
+      state.inputBlocks.push(defaultTextBlock());
+      saveInputBlocks();
+      renderInputBlocks();
+      setLog("Text-Baustein hinzugefügt.", "ok");
+    });
+
+    addMqttBlockBtn.addEventListener("click", () => {
+      const block = defaultMqttBlock();
+      state.inputBlocks.push(block);
+      saveInputBlocks();
+      renderInputBlocks();
+      if (String(block.autoMode || "off") !== "off") {
+        startAutoPush(block.id);
+      }
+      setLog("MQTT-Baustein hinzugefügt.", "ok");
+    });
+
+    inputsContainer.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const blockId = target.dataset.id;
+      const field = target.dataset.field;
+      if (!blockId || !field || !("value" in target)) {
+        return;
+      }
+
+      updateBlockField(blockId, field, target.value);
+      if (["topicSearch", "topic", "jsonKey"].includes(field)) {
+        refreshTopicBrowser(blockId);
+      }
+      if (field === "displayMode") {
+        const block = findBlock(blockId);
+        if (block && block.type === "mqtt") {
+          setLog(`${block.title || "MQTT"}: Anzeigezeit = ${block.displayMode}.`, "ok");
+        }
+      }
+      if (field === "autoMode") {
+        const block = findBlock(blockId);
+        if (block && block.type === "mqtt") {
+          if (String(block.autoMode || "off") === "off") {
+            stopAutoPush(blockId);
+            setLog(`${block.title || "MQTT"}: Auto-Send aus.`, "ok");
+          } else {
+            startAutoPush(blockId);
+            setLog(`${block.title || "MQTT"}: Auto-Send aktiv (${block.autoMode}).`, "ok");
+          }
+        }
+      }
+      if (field === "maxStaleMs") {
+        const block = findBlock(blockId);
+        if (block && block.type === "mqtt") {
+          setLog(`${block.title || "MQTT"}: Stale-Guard = ${block.maxStaleMs}ms.`, "ok");
+        }
+      }
+    });
+
+    inputsContainer.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const action = target.dataset.action;
+      if (action !== "select-topic-segment") {
+        return;
+      }
+
+      const blockId = target.dataset.id;
+      const depthRaw = target.dataset.depth;
+      if (!blockId || !depthRaw || !("value" in target)) {
+        return;
+      }
+
+      const block = findBlock(blockId);
+      if (!block || block.type !== "mqtt") {
+        return;
+      }
+
+      const depth = Number(depthRaw);
+      const existing = splitTopic(block.topic);
+      const next = existing.slice(0, depth);
+      const value = String(target.value || "").trim();
+      if (value) {
+        next.push(value);
+      }
+
+      block.topic = next.join("/");
+      saveInputBlocks();
+      refreshTopicBrowser(blockId);
+      if (String(block.autoMode || "off") !== "off") {
+        startAutoPush(blockId);
+      }
+      setLog(`${block.title || "MQTT"}: Topic-Pfad aktualisiert.`, "ok");
+    });
+
+    inputsContainer.addEventListener("click", async (event) => {
+      const el = event.target;
+      if (!(el instanceof HTMLElement)) {
+        return;
+      }
+      const button = el.closest("button[data-action]");
+      if (!button) {
+        return;
+      }
+
+      const action = button.dataset.action;
+      const blockId = button.dataset.id;
+      if (!action || !blockId) {
+        return;
+      }
+
+      if (action === "delete-block") {
+        const block = findBlock(blockId);
+        stopAutoPush(blockId);
+        delete state.autoLastValue[blockId];
+        delete state.autoLastMessageNo[blockId];
+        if (state.mqttHoldByBlock[blockId]) {
+          try {
+            await postEmpty("/api/notify/dismiss");
+          } catch (_) {
+            // ignore
+          }
+          delete state.mqttHoldByBlock[blockId];
+        }
+        state.inputBlocks = state.inputBlocks.filter((b) => b.id !== blockId);
+        if (state.inputBlocks.length === 0) {
+          state.inputBlocks.push(defaultTextBlock());
+        }
+        saveInputBlocks();
+        renderInputBlocks();
+        setLog(`${block?.title || "Baustein"} gelöscht.`, "ok");
+        return;
+      }
+
+      if (action === "pick-json-key") {
+        const block = findBlock(blockId);
+        if (block && block.type === "mqtt") {
+          block.jsonKey = String(button.dataset.key || "").trim();
+          saveInputBlocks();
+          refreshTopicBrowser(blockId);
+          setLog(`${block.title || "MQTT"}: JSON-Key gesetzt (${block.jsonKey}).`, "ok");
+        }
+        return;
+      }
+
+      if (action === "send-text") {
+        await sendTextBlock(blockId);
+        return;
+      }
+
+      if (action === "sync-topics") {
+        await syncTopics(blockId);
+        return;
+      }
+
+      if (action === "fetch-topic") {
+        const block = findBlock(blockId);
+        try {
+          setLog(`${block?.title || "MQTT"}: lade Wert ...`);
+          const value = await fetchMqttValue(blockId);
+          setLog(`${block?.title || "MQTT"}: Wert geladen (${value}).`, "ok");
+        } catch (error) {
+          setLog(`${block?.title || "MQTT"}: Wert laden fehlgeschlagen (${error.message}).`, "error");
+        }
+        return;
+      }
+
+      if (action === "send-mqtt") {
+        await sendMqttBlock(blockId);
+      }
+    });
+
+    loadDefaults();
+    checkStatus();
+  </script>
+</body>
+</html>

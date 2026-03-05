@@ -1,0 +1,14 @@
+[Unit]
+Description=Ulanzi MQTT bridge API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/ulanzi-bridge/mqtt_bridge.py --host 0.0.0.0 --port 8090
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
