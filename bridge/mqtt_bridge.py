@@ -18,6 +18,8 @@ from urllib.parse import parse_qs, urlparse
 
 import paho.mqtt.client as mqtt
 
+from bridge.config_store import ConfigStore
+
 LOG = logging.getLogger('mqtt-bridge')
 _MISSING = object()
 
@@ -427,6 +429,9 @@ class MQTTBridge:
         self._lock = threading.Lock()
         self._topic_cache: dict[str, dict[str, Any]] = {}
         self._live_sessions: dict[str, LiveSession] = {}
+        self.config_store = ConfigStore(
+            os.environ.get('AWTRIX_APP_CONFIG_FILE', '/opt/ulanzi-bridge/app_config.json')
+        )
         self._auto_lock = threading.Lock()
         self._auto_rules: dict[str, dict[str, Any]] = {}
         self._auto_runtime: dict[str, dict[str, Any]] = {}
