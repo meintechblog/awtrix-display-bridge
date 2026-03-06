@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import time
 import unittest
 
 from bridge.display_updates import DisplayUpdateService
 
 
 class DisplayUpdateTests(unittest.TestCase):
+    def _wait_for_phase(self, service: DisplayUpdateService, job_id: str, expected_phase: str, timeout_s: float = 2.0) -> dict:
+        deadline = time.time() + timeout_s
+        snapshot = {}
+        while time.time() < deadline:
+            snapshot = service.job_status(job_id)
+            if snapshot['phase'] == expected_phase:
+                return snapshot
+            time.sleep(0.01)
+        self.fail(f'Job {job_id} did not reach phase {expected_phase}. Last snapshot: {snapshot}')
+
     def test_status_compares_current_version_with_cached_latest_version(self):
         latest_calls: list[str] = []
         stats_calls: list[str] = []
@@ -76,6 +87,60 @@ class DisplayUpdateTests(unittest.TestCase):
         self.assertEqual(result['mode'], 'noop')
         self.assertEqual(result['body'], 'Bereits aktuell.')
         self.assertEqual(native_calls, [])
+
+    def test_start_update_job_returns_job_id_and_completes_with_result(self):
+        phase_gate = {'open': False}
+
+        def stats_fetcher(ip: str) -> dict[str, str | int]:
+            if not phase_gate['open']:
+                return {'version': '0.96', 'app': 'Clock', 'type': 0}
+            return {'version': '0.98', 'app': 'Notification', 'type': 0}
+
+        service = DisplayUpdateService(
+            latest_version_fetcher=lambda: '0.98',
+            release_fetcher=lambda: {'version': '0.98', 'asset_url': 'https://example.invalid/fw.bin'},
+            stats_fetcher=stats_fetcher,
+            update_trigger=lambda ip: phase_gate.update(open=True) or {
+                'ip': ip,
+                'status_code': 200,
+                'body': 'OK',
+                'ok': True,
+            },
+        )
+
+        started = service.start_update_job('192.168.3.126')
+
+        self.assertEqual(started['ip'], '192.168.3.126')
+        self.assertTrue(started['job_id'])
+        self.assertIn(started['phase'], {'queued', 'checking', 'downloading', 'uploading', 'rebooting', 'verifying', 'completed'})
+
+        completed = self._wait_for_phase(service, started['job_id'], 'completed')
+
+        self.assertTrue(completed['done'])
+        self.assertTrue(completed['ok'])
+        self.assertEqual(completed['result']['final_version'], '0.98')
+        self.assertEqual(completed['result']['mode'], 'device-ota')
+
+    def test_start_update_job_records_failure_state(self):
+        service = DisplayUpdateService(
+            latest_version_fetcher=lambda: '0.98',
+            release_fetcher=lambda: {'version': '0.98', 'asset_url': 'https://example.invalid/fw.bin'},
+            stats_fetcher=lambda ip: {'version': '0.96', 'app': 'Clock', 'type': 0},
+            update_trigger=lambda ip: {
+                'ip': ip,
+                'status_code': 500,
+                'body': 'Boom',
+                'ok': False,
+            },
+        )
+
+        started = service.start_update_job('192.168.3.126')
+        failed = self._wait_for_phase(service, started['job_id'], 'failed')
+
+        self.assertTrue(failed['done'])
+        self.assertFalse(failed['ok'])
+        self.assertIn('Boom', failed['message'])
+        self.assertEqual(failed['result']['body'], 'Boom')
 
 
 if __name__ == '__main__':

@@ -1357,6 +1357,20 @@ class Handler(BaseHTTPRequestHandler):
             self._write_json({'ok': True, 'result': bridge.display_updates.status(ip, refresh=refresh)})
             return
 
+        if parsed.path == '/api/display/update/job':
+            params = parse_qs(parsed.query or '', keep_blank_values=False)
+            job_id = str((params.get('id') or [''])[0]).strip()
+            if not job_id:
+                self._write_json({'ok': False, 'error': 'id is required'}, code=400)
+                return
+            try:
+                result = bridge.display_updates.job_status(job_id)
+            except KeyError as exc:
+                self._write_json({'ok': False, 'error': str(exc)}, code=404)
+                return
+            self._write_json({'ok': True, 'result': result})
+            return
+
         if parsed.path == '/api/inputs':
             self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'inputs')})
             return
@@ -1509,6 +1523,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/display/update':
                 ip = str(data.get('ip', '')).strip()
                 result = bridge.display_updates.trigger_update(ip)
+                self._write_json({'ok': True, 'result': result})
+                return
+
+            if self.path == '/api/display/update/start':
+                ip = str(data.get('ip', '')).strip()
+                result = bridge.display_updates.start_update_job(ip)
                 self._write_json({'ok': True, 'result': result})
                 return
 

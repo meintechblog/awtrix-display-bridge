@@ -4,6 +4,7 @@ import json
 import re
 import threading
 import time
+import uuid
 from typing import Any, Callable
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -19,6 +20,7 @@ UpdateTrigger = Callable[[str], dict[str, Any]]
 FirmwareDownloader = Callable[[str], bytes]
 WebUploader = Callable[[str, bytes, str], dict[str, Any]]
 VersionWaiter = Callable[[str, str, int], dict[str, Any]]
+ProgressCallback = Callable[[str, str], None]
 
 
 def _clean_version(value: Any) -> str:
@@ -171,7 +173,106 @@ class DisplayUpdateService:
             'checked_at_ms': 0,
             'error': '',
         }
+        self._jobs: dict[str, dict[str, Any]] = {}
         self.version_waiter = version_waiter or self._wait_for_version
+
+    def _job_snapshot(self, job_id: str) -> dict[str, Any]:
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise KeyError(f'Unknown update job: {job_id}')
+        return dict(job)
+
+    def _set_job_state(
+        self,
+        job_id: str,
+        *,
+        phase: str,
+        message: str,
+        done: bool | None = None,
+        ok: bool | None = None,
+        result: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise KeyError(f'Unknown update job: {job_id}')
+            job['phase'] = phase
+            job['message'] = message
+            job['updated_at_ms'] = now_ms
+            if done is not None:
+                job['done'] = bool(done)
+            if ok is not None:
+                job['ok'] = bool(ok)
+            if result is not None:
+                job['result'] = dict(result)
+            return dict(job)
+
+    def start_update_job(self, ip: str) -> dict[str, Any]:
+        clean_ip = str(ip or '').strip()
+        if not clean_ip:
+            raise ValueError('ip is required')
+
+        now_ms = int(time.time() * 1000)
+        job_id = uuid.uuid4().hex
+        with self._lock:
+            self._jobs[job_id] = {
+                'job_id': job_id,
+                'ip': clean_ip,
+                'phase': 'queued',
+                'message': 'Wartet auf Start...',
+                'done': False,
+                'ok': False,
+                'result': {},
+                'started_at_ms': now_ms,
+                'updated_at_ms': now_ms,
+            }
+
+        worker = threading.Thread(
+            target=self._run_update_job,
+            args=(job_id, clean_ip),
+            name=f'display-update-{job_id[:8]}',
+            daemon=True,
+        )
+        worker.start()
+        return self.job_status(job_id)
+
+    def job_status(self, job_id: str) -> dict[str, Any]:
+        clean_job_id = str(job_id or '').strip()
+        if not clean_job_id:
+            raise ValueError('job_id is required')
+        with self._lock:
+            return self._job_snapshot(clean_job_id)
+
+    def _run_update_job(self, job_id: str, ip: str) -> None:
+        self._set_job_state(job_id, phase='checking', message='Pruefe Firmware...')
+        try:
+            result = self.trigger_update(ip, progress=self._make_progress_callback(job_id))
+        except Exception as exc:
+            self._set_job_state(
+                job_id,
+                phase='failed',
+                message=str(exc) or 'Update fehlgeschlagen.',
+                done=True,
+                ok=False,
+                result={'ip': ip, 'body': str(exc), 'ok': False},
+            )
+            return
+
+        success = bool(result.get('ok'))
+        self._set_job_state(
+            job_id,
+            phase='completed' if success else 'failed',
+            message=result.get('body') or ('Update erfolgreich.' if success else 'Update fehlgeschlagen.'),
+            done=True,
+            ok=success,
+            result=result,
+        )
+
+    def _make_progress_callback(self, job_id: str) -> ProgressCallback:
+        def update(phase: str, message: str) -> None:
+            self._set_job_state(job_id, phase=phase, message=message)
+        return update
 
     def latest_version(self, refresh: bool = False) -> dict[str, Any]:
         now_ms = int(time.time() * 1000)
@@ -264,11 +365,13 @@ class DisplayUpdateService:
             time.sleep(5)
         raise TimeoutError(f'Version {target_version} wurde nicht bestaetigt. {last_error}'.strip())
 
-    def trigger_update(self, ip: str) -> dict[str, Any]:
+    def trigger_update(self, ip: str, progress: ProgressCallback | None = None) -> dict[str, Any]:
         clean_ip = str(ip or '').strip()
         if not clean_ip:
             raise ValueError('ip is required')
 
+        if progress is not None:
+            progress('checking', 'Pruefe Firmware...')
         current = self.status(clean_ip, refresh=True)
         current_version = _clean_version(current.get('current_version'))
         target_version = _clean_version(current.get('latest_version'))
@@ -290,6 +393,9 @@ class DisplayUpdateService:
 
         if native_result.get('ok') and target_version:
             try:
+                if progress is not None:
+                    progress('rebooting', 'Display startet neu...')
+                    progress('verifying', f'Pruefe Version {target_version}...')
                 confirmed = self.version_waiter(clean_ip, target_version, 120)
                 final_version = _clean_version(confirmed.get('version'))
                 return {
@@ -331,8 +437,15 @@ class DisplayUpdateService:
                 }
             filename = asset_url.rsplit('/', 1)[-1] or 'firmware.bin'
             try:
+                if progress is not None:
+                    progress('downloading', f'Lade Firmware {target_version}...')
                 firmware = self.firmware_downloader(asset_url)
+                if progress is not None:
+                    progress('uploading', 'Uebertrage Firmware...')
                 upload_result = self.web_uploader(clean_ip, firmware, filename)
+                if progress is not None:
+                    progress('rebooting', 'Display startet neu...')
+                    progress('verifying', f'Pruefe Version {target_version}...')
                 confirmed = self.version_waiter(clean_ip, target_version, 120)
                 final_version = _clean_version(confirmed.get('version'))
                 return {

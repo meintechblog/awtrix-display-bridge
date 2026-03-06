@@ -239,6 +239,65 @@ class AppApiTests(unittest.TestCase):
         self.assertEqual(payload['result']['status_code'], 404)
         self.assertEqual(payload['result']['body'], 'NoUpdateFound')
 
+    def test_post_display_update_start_returns_job_id(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json', start_discovery=False)
+            try:
+                server.bridge.display_updates = SimpleNamespace(
+                    start_update_job=lambda ip: {
+                        'job_id': 'job-123',
+                        'ip': ip,
+                        'phase': 'checking',
+                        'message': 'Pruefe Firmware...',
+                        'done': False,
+                        'ok': False,
+                        'result': {},
+                    }
+                )
+                payload = self._request_json(
+                    'POST',
+                    f'http://127.0.0.1:{server.server_address[1]}/api/display/update/start',
+                    {'ip': '192.168.3.126'},
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['result']['job_id'], 'job-123')
+        self.assertEqual(payload['result']['phase'], 'checking')
+
+    def test_get_display_update_job_returns_job_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json', start_discovery=False)
+            try:
+                server.bridge.display_updates = SimpleNamespace(
+                    job_status=lambda job_id: {
+                        'job_id': job_id,
+                        'ip': '192.168.3.126',
+                        'phase': 'verifying',
+                        'message': 'Pruefe Version 0.98...',
+                        'done': False,
+                        'ok': False,
+                        'result': {},
+                    }
+                )
+                payload = self._request_json(
+                    'GET',
+                    f'http://127.0.0.1:{server.server_address[1]}/api/display/update/job?id=job-123',
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['result']['job_id'], 'job-123')
+        self.assertEqual(payload['result']['phase'], 'verifying')
+
 
 if __name__ == '__main__':
     unittest.main()
