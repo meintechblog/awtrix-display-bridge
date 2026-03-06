@@ -77,12 +77,11 @@ test('adopts a discovered display into the unsaved display list', async () => {
   });
 
   expect(await screen.findByText('Version 0.96')).toBeInTheDocument();
-  expect(screen.getByText('Neueste 0.98')).toBeInTheDocument();
-  expect(screen.getByText('Update verfügbar')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument();
+  expect(screen.queryByText('Neueste 0.98')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Update verfügbar · 0.98' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Webinterface' })).toBeInTheDocument();
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+  await fireEvent.click(screen.getByRole('button', { name: 'Update verfügbar · 0.98' }));
 
   await waitFor(() => {
     expect(triggerDisplayUpdate).toHaveBeenCalledWith('192.168.3.126');
@@ -97,4 +96,50 @@ test('adopts a discovered display into the unsaved display list', async () => {
   });
   expect(screen.getByDisplayValue('192.168.3.140')).toBeInTheDocument();
   expect(workspace.saveState).toBe('dirty');
+});
+
+test('renders a passive current-state update pill when no update is available', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const workspace = useWorkspaceStore();
+  workspace.$patch({
+    displays: [{ id: 'display-main', name: 'Display 1', ip: '192.168.3.126' }],
+    inputs: [],
+    bindings: [],
+    persistedConfig: {
+      version: 1,
+      displays: [{ id: 'display-main', name: 'Display 1', ip: '192.168.3.126' }],
+      inputs: [],
+      bindings: [],
+    },
+    saveState: 'saved',
+    loaded: true,
+  });
+
+  fetchDiscoveredDisplays.mockResolvedValue({
+    items: [],
+    count: 0,
+    error: '',
+    updated_at_ms: 1772870400000,
+    scan_active: false,
+  });
+  fetchDisplayUpdateStatus.mockResolvedValue({
+    ip: '192.168.3.126',
+    currentVersion: '0.98',
+    latestVersion: '0.98',
+    updateAvailable: false,
+    app: 'Notification',
+    checkedAtMs: 1772870400000,
+    error: '',
+  });
+
+  render(DisplaysView, {
+    global: {
+      plugins: [pinia],
+    },
+  });
+
+  expect(await screen.findByText('Version 0.98')).toBeInTheDocument();
+  expect(screen.getByText('Aktuell · 0.98')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Update verfügbar · 0.98' })).not.toBeInTheDocument();
 });
