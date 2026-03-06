@@ -81,7 +81,7 @@ test('legacy flat mqtt fields load into the generic delivery model', async () =>
         timeout: 4,
         topicSearch: '',
       },
-    ],
+    ] as unknown as AppConfigPayload['inputs'],
   });
 
   const store = useWorkspaceStore();
