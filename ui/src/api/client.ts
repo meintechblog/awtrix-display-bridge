@@ -1,4 +1,10 @@
-import type { AppConfigPayload, DiscoverySnapshot, TopicBrowserItem } from '../types/domain';
+import type {
+  AppConfigPayload,
+  DiscoverySnapshot,
+  DisplayUpdateResult,
+  DisplayUpdateStatus,
+  TopicBrowserItem,
+} from '../types/domain';
 import { LEGACY_CUSTOM_APP } from '../utils/defaults';
 
 type JsonBody = Record<string, unknown>;
@@ -68,6 +74,10 @@ export function buildLivePreviewUrl(displayIp: string): string {
   return `/live.html?ip=${encodeURIComponent(displayIp)}`;
 }
 
+export function buildDisplayUrl(displayIp: string): string {
+  return awtrixBaseUrl(displayIp);
+}
+
 export async function fetchConfig(): Promise<AppConfigPayload> {
   return bridgeRequest<AppConfigPayload>('GET', '/api/config');
 }
@@ -78,6 +88,48 @@ export async function fetchDiscoveredDisplays(refresh = false): Promise<Discover
     params.set('refresh', '1');
   }
   return bridgeRequest<DiscoverySnapshot>('GET', '/api/discovery/displays', undefined, params);
+}
+
+export async function fetchDisplayUpdateStatus(displayIp: string, refresh = false): Promise<DisplayUpdateStatus> {
+  const params = new URLSearchParams({ ip: displayIp });
+  if (refresh) {
+    params.set('refresh', '1');
+  }
+  const result = await bridgeRequest<{
+    ip: string;
+    current_version: string;
+    latest_version: string;
+    update_available: boolean;
+    app: string;
+    checked_at_ms: number;
+    error: string;
+  }>('GET', '/api/display/update-status', undefined, params);
+
+  return {
+    ip: result.ip,
+    currentVersion: result.current_version || '',
+    latestVersion: result.latest_version || '',
+    updateAvailable: Boolean(result.update_available),
+    app: result.app || '',
+    checkedAtMs: Number(result.checked_at_ms || 0),
+    error: result.error || '',
+  };
+}
+
+export async function triggerDisplayUpdate(displayIp: string): Promise<DisplayUpdateResult> {
+  const result = await bridgeRequest<{
+    ip: string;
+    status_code: number;
+    body: string;
+    ok: boolean;
+  }>('POST', '/api/display/update', { ip: displayIp });
+
+  return {
+    ip: result.ip,
+    statusCode: Number(result.status_code || 0),
+    body: result.body || '',
+    ok: Boolean(result.ok),
+  };
 }
 
 export async function saveConfig(payload: AppConfigPayload): Promise<AppConfigPayload> {

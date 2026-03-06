@@ -21,6 +21,7 @@ import paho.mqtt.client as mqtt
 from bridge.app_api import collection_payload, config_payload
 from bridge.config_store import ConfigStore
 from bridge.display_discovery import DisplayDiscoveryService
+from bridge.display_updates import DisplayUpdateService
 from bridge.runtime_view import build_dashboard_summary, normalize_runtime_event
 from bridge.topic_browser import list_children
 
@@ -419,6 +420,7 @@ class MQTTBridge:
             app_config_path or os.environ.get('AWTRIX_APP_CONFIG_FILE', '/opt/ulanzi-bridge/app_config.json')
         )
         self.display_discovery = DisplayDiscoveryService(interval_s=30)
+        self.display_updates = DisplayUpdateService()
         self._auto_lock = threading.Lock()
         self._auto_rules: dict[str, dict[str, Any]] = {}
         self._auto_runtime: dict[str, dict[str, Any]] = {}
@@ -1345,6 +1347,16 @@ class Handler(BaseHTTPRequestHandler):
             self._write_json({'ok': True, 'result': bridge.discovered_displays(refresh=refresh)})
             return
 
+        if parsed.path == '/api/display/update-status':
+            params = parse_qs(parsed.query or '', keep_blank_values=False)
+            ip = str((params.get('ip') or [''])[0]).strip()
+            refresh = _to_bool((params.get('refresh') or ['false'])[0], default=False)
+            if not ip:
+                self._write_json({'ok': False, 'error': 'ip is required'}, code=400)
+                return
+            self._write_json({'ok': True, 'result': bridge.display_updates.status(ip, refresh=refresh)})
+            return
+
         if parsed.path == '/api/inputs':
             self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'inputs')})
             return
@@ -1491,6 +1503,12 @@ class Handler(BaseHTTPRequestHandler):
                 display_ip = str(data.get('display_ip', '')).strip()
                 routes = data.get('routes', [])
                 result = bridge.replace_auto_routes(display_ip=display_ip, routes=routes)
+                self._write_json({'ok': True, 'result': result})
+                return
+
+            if self.path == '/api/display/update':
+                ip = str(data.get('ip', '')).strip()
+                result = bridge.display_updates.trigger_update(ip)
                 self._write_json({'ok': True, 'result': result})
                 return
 

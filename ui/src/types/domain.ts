@@ -107,3 +107,20 @@ export interface DiscoverySnapshot {
   updated_at_ms: number;
   scan_active: boolean;
 }
+
+export interface DisplayUpdateStatus {
+  ip: string;
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  app: string;
+  checkedAtMs: number;
+  error: string;
+}
+
+export interface DisplayUpdateResult {
+  ip: string;
+  statusCode: number;
+  body: string;
+  ok: boolean;
+}

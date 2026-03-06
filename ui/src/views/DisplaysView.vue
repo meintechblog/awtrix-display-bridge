@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import { buildLivePreviewUrl } from '../api/client';
+import { buildDisplayUrl, buildLivePreviewUrl } from '../api/client';
 import DiscoveryCard from '../components/displays/DiscoveryCard.vue';
 import SaveStatusBadge from '../components/common/SaveStatusBadge.vue';
 import StatusBadge from '../components/common/StatusBadge.vue';
 import { useDisplayDiscovery } from '../composables/useDisplayDiscovery';
+import { useDisplayUpdates } from '../composables/useDisplayUpdates';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useRuntimeStore } from '../stores/runtime';
 
@@ -18,11 +19,21 @@ const {
   lastUpdatedAtMs: discoveryUpdatedAtMs,
   scanActive: discoveryScanActive,
 } = useDisplayDiscovery(() => workspace.displays.map((display) => display.ip));
+const {
+  statuses: displayUpdates,
+  updating: updatingDisplays,
+  actionMessages: updateMessages,
+  tryUpdate,
+} = useDisplayUpdates(() => workspace.displays);
 
 const displays = computed(() => workspace.displays.map((display) => ({
   ...display,
   previewUrl: buildLivePreviewUrl(display.ip),
+  deviceUrl: buildDisplayUrl(display.ip),
   status: runtime.displayStates[display.id]?.state || 'unknown',
+  firmware: displayUpdates.value[display.id],
+  updateBusy: Boolean(updatingDisplays.value[display.id]),
+  updateMessage: updateMessages.value[display.id] || '',
 })));
 
 const discoveryNote = computed(() => {
@@ -93,6 +104,17 @@ const discoveryNote = computed(() => {
         <StatusBadge :label="display.status" :tone="display.status === 'online' ? 'ok' : display.status === 'offline' ? 'danger' : 'warn'" />
         <button type="button" class="danger-btn" :disabled="workspace.displays.length <= 1" @click="workspace.removeDisplay(display.id)">Löschen</button>
       </div>
+
+      <div class="tag-row">
+        <span class="tag-pill">Version {{ display.firmware?.currentVersion || runtime.displayStates[display.id]?.version || '-' }}</span>
+        <span v-if="display.firmware?.latestVersion" class="tag-pill">Neueste {{ display.firmware.latestVersion }}</span>
+        <span v-if="display.firmware?.updateAvailable" class="tag-pill" data-selected="true">Update verfügbar</span>
+        <button type="button" class="ghost-btn" :disabled="display.updateBusy" @click="tryUpdate(display.id, display.ip)">
+          {{ display.updateBusy ? 'Update läuft...' : 'Update versuchen' }}
+        </button>
+        <a class="ghost-btn" :href="display.deviceUrl" target="_blank" rel="noreferrer">Webinterface</a>
+      </div>
+      <p v-if="display.updateMessage || display.firmware?.error" class="meta-copy">{{ display.updateMessage || display.firmware?.error }}</p>
 
       <iframe :src="display.previewUrl" title="Display preview" class="display-preview config-preview" />
     </article>

@@ -182,6 +182,63 @@ class AppApiTests(unittest.TestCase):
         self.assertEqual(payload['result']['count'], 1)
         self.assertEqual(payload['result']['items'][0]['ip'], '192.168.3.150')
 
+    def test_get_display_update_status_returns_current_and_latest_versions(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json', start_discovery=False)
+            try:
+                server.bridge.display_updates = SimpleNamespace(
+                    status=lambda ip, refresh=False: {
+                        'ip': ip,
+                        'current_version': '0.96',
+                        'latest_version': '0.98',
+                        'update_available': True,
+                        'app': 'Clock',
+                        'checked_at_ms': 1772870400000,
+                        'error': '',
+                    }
+                )
+                payload = self._request_json(
+                    'GET',
+                    f'http://127.0.0.1:{server.server_address[1]}/api/display/update-status?ip=192.168.3.126',
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['result']['current_version'], '0.96')
+        self.assertEqual(payload['result']['latest_version'], '0.98')
+        self.assertTrue(payload['result']['update_available'])
+
+    def test_post_display_update_returns_device_response(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json', start_discovery=False)
+            try:
+                server.bridge.display_updates = SimpleNamespace(
+                    trigger_update=lambda ip: {
+                        'ip': ip,
+                        'status_code': 404,
+                        'body': 'NoUpdateFound',
+                        'ok': False,
+                    }
+                )
+                payload = self._request_json(
+                    'POST',
+                    f'http://127.0.0.1:{server.server_address[1]}/api/display/update',
+                    {'ip': '192.168.3.126'},
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['result']['status_code'], 404)
+        self.assertEqual(payload['result']['body'], 'NoUpdateFound')
+
 
 if __name__ == '__main__':
     unittest.main()
