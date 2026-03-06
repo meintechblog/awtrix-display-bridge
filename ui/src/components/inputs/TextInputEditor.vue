@@ -39,7 +39,7 @@ async function sendNow() {
   <section v-if="input && input.kind === 'text'" class="editor-panel">
     <div class="editor-head">
       <div>
-        <p class="eyebrow">Text Input</p>
+        <p class="eyebrow">Text Skill</p>
         <h2>{{ input.name }}</h2>
       </div>
       <button type="button" class="primary-btn" @click="sendNow">An Displays senden</button>
@@ -56,8 +56,33 @@ async function sendNow() {
         <input :value="input.name" @input="workspace.updateInput(input.id, { name: ($event.target as HTMLInputElement).value })" />
       </div>
       <div class="field-stack">
-        <label>Dauer</label>
-        <input type="number" min="1" max="120" :value="input.duration" @input="workspace.updateInput(input.id, { duration: Number(($event.target as HTMLInputElement).value) })" />
+        <label>Anzeigezeit</label>
+        <input
+          type="number"
+          min="1"
+          max="120"
+          :value="input.delivery.displayDuration"
+          @input="workspace.updateInput(input.id, { delivery: { ...input.delivery, displayDuration: String(Math.min(120, Math.max(1, Number(($event.target as HTMLInputElement).value) || 8))) } })"
+        />
+      </div>
+    </div>
+
+    <div class="field-grid two">
+      <div class="field-stack">
+        <label>Sendemodus</label>
+        <select
+          :value="input.delivery.sendMode"
+          @change="workspace.updateInput(input.id, { delivery: { ...input.delivery, sendMode: ($event.target as HTMLSelectElement).value } })"
+        >
+          <option value="off">manuell</option>
+        </select>
+      </div>
+      <div class="field-stack">
+        <label>Template</label>
+        <input
+          :value="input.delivery.template"
+          @input="workspace.updateInput(input.id, { delivery: { ...input.delivery, template: ($event.target as HTMLInputElement).value } })"
+        />
       </div>
     </div>
 

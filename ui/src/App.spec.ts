@@ -10,7 +10,7 @@ test('renders the primary navigation entries', async () => {
     routes: [
       { path: '/', component: { template: '<div>Overview</div>' } },
       { path: '/displays', component: { template: '<div>Displays page</div>' } },
-      { path: '/inputs', component: { template: '<div>Inputs page</div>' } },
+      { path: '/skills', component: { template: '<div>Skills page</div>' } },
       { path: '/settings', component: { template: '<div>Settings page</div>' } },
     ],
   });
@@ -23,6 +23,6 @@ test('renders the primary navigation entries', async () => {
 
   expect(await screen.findByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Displays' })).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Inputs' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Skills' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
 });

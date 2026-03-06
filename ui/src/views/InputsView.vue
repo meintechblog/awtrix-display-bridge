@@ -17,7 +17,7 @@ const cards = computed(() => workspace.inputs.map((input) => ({
   kind: input.kind,
   name: input.name,
   assignedDisplayCount: workspace.assignedDisplayIds(input.id).length,
-  autoMode: input.kind === 'mqtt' ? input.autoMode : undefined,
+  sendMode: input.delivery?.sendMode || 'off',
   preview: runtime.inputValues[input.id]?.value || '-',
 })));
 
@@ -36,12 +36,12 @@ function addMqttInput() {
   <section class="page-grid inputs-layout">
     <div class="section-head">
       <div>
-        <p class="eyebrow">Inputs</p>
-        <h2>Input-Bibliothek</h2>
+        <p class="eyebrow">Skills</p>
+        <h2>Skill-Bibliothek</h2>
       </div>
       <div class="inline-actions">
-        <button type="button" class="ghost-btn" @click="addTextInput">+ Text</button>
-        <button type="button" class="primary-btn" @click="addMqttInput">+ MQTT</button>
+        <button type="button" class="ghost-btn" @click="addTextInput">+ Text Skill</button>
+        <button type="button" class="primary-btn" @click="addMqttInput">+ MQTT Skill</button>
       </div>
     </div>
 
@@ -59,8 +59,8 @@ function addMqttInput() {
     <MqttInputEditor v-else-if="selectedInput?.kind === 'mqtt'" :input-id="selectedInput.id" />
     <section v-else class="editor-panel placeholder-panel">
       <p class="eyebrow">Editor</p>
-      <h2>Input auswählen</h2>
-      <p>Öffne einen Input aus der Bibliothek oder lege einen neuen an.</p>
+      <h2>Skill auswählen</h2>
+      <p>Öffne einen Skill aus der Bibliothek oder lege einen neuen an.</p>
     </section>
   </section>
 </template>

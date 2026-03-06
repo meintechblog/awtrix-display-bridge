@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router';
 const items = [
   { to: '/', label: 'Dashboard' },
   { to: '/displays', label: 'Displays' },
-  { to: '/inputs', label: 'Inputs' },
+  { to: '/skills', label: 'Skills' },
   { to: '/settings', label: 'Settings' },
 ];
 </script>

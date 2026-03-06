@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/vue';
 
 import InputCard from './InputCard.vue';
 
-test('renders reusable input metadata and assigned display count', () => {
+test('renders reusable skill metadata and assigned display count', () => {
   render(InputCard, {
     props: {
       input: {
@@ -10,14 +10,14 @@ test('renders reusable input metadata and assigned display count', () => {
         kind: 'mqtt',
         name: 'Balance Feed',
         assignedDisplayCount: 2,
-        autoMode: 'realtime',
+        sendMode: 'realtime',
         preview: '15568.91',
       },
     },
   });
 
   expect(screen.getByText('Balance Feed')).toBeInTheDocument();
-  expect(screen.getByText('mqtt')).toBeInTheDocument();
+  expect(screen.getByText('MQTT Skill')).toBeInTheDocument();
   expect(screen.getByText('2 Displays')).toBeInTheDocument();
   expect(screen.getByText('15568.91')).toBeInTheDocument();
 });

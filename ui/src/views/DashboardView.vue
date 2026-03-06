@@ -27,7 +27,7 @@ const cardModels = computed(() => workspace.displays.map((display) => {
     ip: display.ip,
     status: state?.state || 'unknown',
     previewUrl: buildLivePreviewUrl(display.ip),
-    activeContent: assignedInputs[0]?.name || 'Keine aktiven Inputs',
+    activeContent: assignedInputs[0]?.name || 'Keine aktiven Skills',
     assignedInputs,
     version: state?.version,
     app: state?.app,

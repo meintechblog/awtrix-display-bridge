@@ -10,7 +10,7 @@ test('renders summary slot, navigation, and content shell', async () => {
     routes: [
       { path: '/', component: { template: '<div>Dashboard content</div>' } },
       { path: '/displays', component: { template: '<div>Displays page</div>' } },
-      { path: '/inputs', component: { template: '<div>Inputs page</div>' } },
+      { path: '/skills', component: { template: '<div>Skills page</div>' } },
       { path: '/settings', component: { template: '<div>Settings page</div>' } },
     ],
   });

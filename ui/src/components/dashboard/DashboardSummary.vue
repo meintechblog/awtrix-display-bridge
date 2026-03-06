@@ -14,7 +14,7 @@ defineProps<{
       <span>{{ summary.online }} online · {{ summary.offline }} offline · {{ summary.stale }} stale</span>
     </article>
     <article class="summary-tile">
-      <p class="eyebrow">Inputs</p>
+      <p class="eyebrow">Skills</p>
       <strong>{{ summary.inputs }}</strong>
       <span>{{ summary.bindings }} aktive Zuordnungen</span>
     </article>

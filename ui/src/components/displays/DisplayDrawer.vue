@@ -67,10 +67,10 @@ defineEmits<{
     />
 
     <div class="drawer-section">
-      <p class="eyebrow">Zugeordnete Inputs</p>
+      <p class="eyebrow">Zugeordnete Skills</p>
       <div class="tag-row">
         <span v-for="input in assignedInputs" :key="input.id" class="tag-pill">{{ input.name }}</span>
-        <span v-if="!assignedInputs.length" class="meta-copy">Keine Inputs zugeordnet.</span>
+        <span v-if="!assignedInputs.length" class="meta-copy">Keine Skills zugeordnet.</span>
       </div>
     </div>
 

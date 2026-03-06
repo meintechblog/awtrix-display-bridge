@@ -116,7 +116,7 @@ const editorSaveNote = computed(() => {
   <section v-if="input && input.kind === 'mqtt'" class="editor-panel">
     <div class="editor-head">
       <div>
-        <p class="eyebrow">MQTT Input</p>
+        <p class="eyebrow">MQTT Skill</p>
         <h2>{{ input.name }}</h2>
       </div>
       <div class="inline-actions">
@@ -148,8 +148,11 @@ const editorSaveNote = computed(() => {
 
     <div class="field-grid two">
       <div class="field-stack">
-        <label>Auto senden</label>
-        <select :value="input.autoMode" @change="updateField('autoMode', ($event.target as HTMLSelectElement).value)">
+        <label>Sendemodus</label>
+        <select
+          :value="input.delivery.sendMode"
+          @change="workspace.updateInput(input.id, { delivery: { ...input.delivery, sendMode: ($event.target as HTMLSelectElement).value } })"
+        >
           <option value="realtime">real time</option>
           <option v-for="sec in 10" :key="sec" :value="String(sec)">{{ sec }}s</option>
           <option value="off">off</option>
@@ -157,7 +160,10 @@ const editorSaveNote = computed(() => {
       </div>
       <div class="field-stack">
         <label>Anzeigezeit</label>
-        <select :value="input.displayMode" @change="updateField('displayMode', ($event.target as HTMLSelectElement).value)">
+        <select
+          :value="input.delivery.displayDuration"
+          @change="workspace.updateInput(input.id, { delivery: { ...input.delivery, displayDuration: ($event.target as HTMLSelectElement).value } })"
+        >
           <option v-for="sec in 10" :key="sec" :value="String(sec)">{{ sec }}s</option>
           <option value="until-change">bis wertänderung</option>
         </select>
@@ -209,7 +215,11 @@ const editorSaveNote = computed(() => {
         </div>
         <div class="field-stack">
           <label>Template</label>
-          <input :value="input.template" placeholder="Balance: {value}" @input="updateField('template', ($event.target as HTMLInputElement).value)" />
+          <input
+            :value="input.delivery.template"
+            placeholder="Balance: {value}"
+            @input="workspace.updateInput(input.id, { delivery: { ...input.delivery, template: ($event.target as HTMLInputElement).value } })"
+          />
         </div>
         <div class="field-stack">
           <label>Payload-Sample</label>

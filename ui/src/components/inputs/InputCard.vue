@@ -7,7 +7,7 @@ defineProps<{
     kind: string;
     name: string;
     assignedDisplayCount: number;
-    autoMode?: string;
+    sendMode?: string;
     preview?: string;
   };
 }>();
@@ -23,12 +23,12 @@ defineEmits<{
     <button type="button" class="card-hit" @click="$emit('open')">
       <header class="input-card-head">
         <div>
-          <p class="eyebrow">{{ input.kind }}</p>
+          <p class="eyebrow">{{ input.kind === 'mqtt' ? 'MQTT Skill' : input.kind === 'text' ? 'Text Skill' : `${input.kind} Skill` }}</p>
           <h3>{{ input.name }}</h3>
         </div>
         <StatusBadge
-          :label="input.autoMode || input.kind"
-          :tone="input.autoMode === 'realtime' ? 'ok' : input.autoMode && input.autoMode !== 'off' ? 'warn' : 'neutral'"
+          :label="input.sendMode || 'off'"
+          :tone="input.sendMode === 'realtime' ? 'ok' : input.sendMode && input.sendMode !== 'off' ? 'warn' : 'neutral'"
         />
       </header>
 

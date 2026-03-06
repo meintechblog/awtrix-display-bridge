@@ -40,7 +40,7 @@ export function useDisplayActions() {
   }
 
   async function sendTextInputToDisplays(input: TextInputConfig, displays: DisplayConfig[]) {
-    await Promise.all(displays.map((display) => sendText(display, input.text, input.duration)));
+    await Promise.all(displays.map((display) => sendText(display, input.text, input.delivery.displayDuration)));
   }
 
   async function fetchMqttInputValue(input: MqttInputConfig) {
@@ -66,8 +66,8 @@ export function useDisplayActions() {
       messageNo: detail.messageNo,
       stale: false,
     });
-    const text = formatTemplate(input.template, detail.preview);
-    await Promise.all(displays.map((display) => sendText(display, text, input.displayMode)));
+    const text = formatTemplate(input.delivery.template, detail.preview);
+    await Promise.all(displays.map((display) => sendText(display, text, input.delivery.displayDuration)));
     return detail;
   }
 

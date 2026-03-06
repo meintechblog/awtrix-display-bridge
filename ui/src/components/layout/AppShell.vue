@@ -8,7 +8,7 @@ import AppSidebar from './AppSidebar.vue';
     <AppHeader
       eyebrow="AWTRIX Dashboard"
       title="Display Control Center"
-      subtitle="Dashboard-first orchestration for displays, inputs, and runtime state."
+      subtitle="Dashboard-first orchestration for displays, skills, and runtime state."
     />
 
     <div class="shell-grid">

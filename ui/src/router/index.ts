@@ -10,7 +10,8 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'dashboard', component: DashboardView },
     { path: '/displays', name: 'displays', component: DisplaysView },
-    { path: '/inputs', name: 'inputs', component: InputsView },
+    { path: '/skills', name: 'skills', component: InputsView },
+    { path: '/inputs', redirect: '/skills' },
     { path: '/settings', name: 'settings', component: SettingsView },
   ],
 });
