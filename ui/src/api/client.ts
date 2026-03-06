@@ -1,4 +1,4 @@
-import type { AppConfigPayload, TopicBrowserItem } from '../types/domain';
+import type { AppConfigPayload, DiscoverySnapshot, TopicBrowserItem } from '../types/domain';
 import { LEGACY_CUSTOM_APP } from '../utils/defaults';
 
 type JsonBody = Record<string, unknown>;
@@ -70,6 +70,14 @@ export function buildLivePreviewUrl(displayIp: string): string {
 
 export async function fetchConfig(): Promise<AppConfigPayload> {
   return bridgeRequest<AppConfigPayload>('GET', '/api/config');
+}
+
+export async function fetchDiscoveredDisplays(refresh = false): Promise<DiscoverySnapshot> {
+  const params = new URLSearchParams();
+  if (refresh) {
+    params.set('refresh', '1');
+  }
+  return bridgeRequest<DiscoverySnapshot>('GET', '/api/discovery/displays', undefined, params);
 }
 
 export async function saveConfig(payload: AppConfigPayload): Promise<AppConfigPayload> {

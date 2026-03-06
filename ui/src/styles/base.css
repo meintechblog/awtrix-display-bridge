@@ -165,6 +165,7 @@ button {
 .editor-panel,
 .display-card,
 .input-card,
+.discovery-card,
 .topic-browser-panel,
 .topic-detail-card {
   border: 1px solid var(--line);
@@ -259,6 +260,7 @@ button {
 
 .display-card,
 .input-card,
+.discovery-card,
 .config-card,
 .editor-panel,
 .drawer {
@@ -268,6 +270,11 @@ button {
 
 .display-card,
 .input-card {
+  display: grid;
+  gap: 14px;
+}
+
+.discovery-card {
   display: grid;
   gap: 14px;
 }
@@ -285,6 +292,7 @@ button {
 
 .display-card-head,
 .input-card-head,
+.discovery-card-head,
 .editor-head,
 .drawer-head {
   display: flex;

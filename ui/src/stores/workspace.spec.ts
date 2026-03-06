@@ -1,7 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 
-import type { AppConfigPayload } from '../types/domain';
+import type { AppConfigPayload, DiscoveryDisplay } from '../types/domain';
 import { useWorkspaceStore } from './workspace';
 
 const fetchConfig = vi.fn<() => Promise<AppConfigPayload>>();
@@ -87,4 +87,26 @@ test('saveNow persists dirty config explicitly', async () => {
   expect(store.hasUnsavedChanges).toBe(false);
   expect(store.saveState).toBe('saved');
   expect(store.inputSaveState('mqtt-1')).toBe('saved');
+});
+
+test('adoptDiscoveredDisplay adds a draft display without persisting immediately', async () => {
+  const store = useWorkspaceStore();
+
+  await store.load();
+  saveConfig.mockClear();
+
+  store.adoptDiscoveredDisplay({
+    ip: '192.168.3.140',
+    name: 'Desk Matrix',
+    version: '0.97',
+    app: 'Clock',
+    wifiSignal: -61,
+    matrix: true,
+    updatedAtMs: 1772870400000,
+  } satisfies DiscoveryDisplay);
+
+  expect(store.displays.some((display) => display.ip === '192.168.3.140')).toBe(true);
+  expect(store.hasUnsavedChanges).toBe(true);
+  expect(store.saveState).toBe('dirty');
+  expect(saveConfig).not.toHaveBeenCalled();
 });

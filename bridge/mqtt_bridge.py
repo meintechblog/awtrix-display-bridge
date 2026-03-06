@@ -20,6 +20,7 @@ import paho.mqtt.client as mqtt
 
 from bridge.app_api import collection_payload, config_payload
 from bridge.config_store import ConfigStore
+from bridge.display_discovery import DisplayDiscoveryService
 from bridge.runtime_view import build_dashboard_summary, normalize_runtime_event
 from bridge.topic_browser import list_children
 
@@ -404,13 +405,20 @@ class LiveSession:
 
 
 class MQTTBridge:
-    def __init__(self, app_config_path: str | None = None, auto_rules_path: str | None = None) -> None:
+    def __init__(
+        self,
+        app_config_path: str | None = None,
+        auto_rules_path: str | None = None,
+        *,
+        start_discovery: bool = True,
+    ) -> None:
         self._lock = threading.Lock()
         self._topic_cache: dict[str, dict[str, Any]] = {}
         self._live_sessions: dict[str, LiveSession] = {}
         self.config_store = ConfigStore(
             app_config_path or os.environ.get('AWTRIX_APP_CONFIG_FILE', '/opt/ulanzi-bridge/app_config.json')
         )
+        self.display_discovery = DisplayDiscoveryService(interval_s=30)
         self._auto_lock = threading.Lock()
         self._auto_rules: dict[str, dict[str, Any]] = {}
         self._auto_runtime: dict[str, dict[str, Any]] = {}
@@ -424,6 +432,8 @@ class MQTTBridge:
         self._load_auto_rules()
         self._auto_sender_thread.start()
         self._auto_tick_thread.start()
+        if start_discovery:
+            self.display_discovery.start()
 
     @staticmethod
     def _key(broker_host: str, broker_port: int) -> str:
@@ -1053,6 +1063,19 @@ class MQTTBridge:
             'items': items,
         }
 
+    def discovered_displays(self, refresh: bool = False) -> dict[str, Any]:
+        config = self.config_store.load()
+        excluded_ips = {
+            str(item.get('ip', '')).strip()
+            for item in config.get('displays', [])
+            if isinstance(item, dict) and str(item.get('ip', '')).strip()
+        }
+        if refresh:
+            payload = self.display_discovery.run_scan(excluded_ips=excluded_ips)
+            self.display_discovery._update_cache(payload)
+            return payload
+        return self.display_discovery.snapshot(excluded_ips=excluded_ips)
+
     def shutdown(self) -> None:
         self._auto_stop.set()
         try:
@@ -1061,6 +1084,11 @@ class MQTTBridge:
             pass
         try:
             self._auto_tick_thread.join(timeout=1.0)
+        except Exception:
+            pass
+
+        try:
+            self.display_discovery.stop()
         except Exception:
             pass
 
@@ -1311,6 +1339,12 @@ class Handler(BaseHTTPRequestHandler):
             self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'displays')})
             return
 
+        if parsed.path == '/api/discovery/displays':
+            params = parse_qs(parsed.query or '', keep_blank_values=False)
+            refresh = _to_bool((params.get('refresh') or ['false'])[0], default=False)
+            self._write_json({'ok': True, 'result': bridge.discovered_displays(refresh=refresh)})
+            return
+
         if parsed.path == '/api/inputs':
             self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'inputs')})
             return
@@ -1489,9 +1523,10 @@ def build_server(
     *,
     app_config_path: str | None = None,
     auto_rules_path: str | None = None,
+    start_discovery: bool = True,
     start_thread: bool = True,
 ) -> tuple[BridgeHTTPServer, threading.Thread | None]:
-    bridge = MQTTBridge(app_config_path=app_config_path, auto_rules_path=auto_rules_path)
+    bridge = MQTTBridge(app_config_path=app_config_path, auto_rules_path=auto_rules_path, start_discovery=start_discovery)
     server = BridgeHTTPServer((host, port), Handler, bridge)
     thread = None
     if start_thread:

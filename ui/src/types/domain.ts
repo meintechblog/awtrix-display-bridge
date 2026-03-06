@@ -8,6 +8,16 @@ export interface DisplayConfig {
   ip: string;
 }
 
+export interface DiscoveryDisplay {
+  ip: string;
+  name: string;
+  version?: string;
+  app?: string;
+  wifiSignal?: number | null;
+  matrix?: boolean | null;
+  updatedAtMs: number;
+}
+
 export interface TextInputConfig {
   id: string;
   kind: 'text';
@@ -88,4 +98,12 @@ export interface TopicDetail {
   rawPayload: string;
   jsonKeys: string[];
   previewValue: string;
+}
+
+export interface DiscoverySnapshot {
+  items: DiscoveryDisplay[];
+  count: number;
+  error: string;
+  updated_at_ms: number;
+  scan_active: boolean;
 }

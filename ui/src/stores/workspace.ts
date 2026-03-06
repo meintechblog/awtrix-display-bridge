@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 
 import { fetchConfig, replaceAutoRoutes, saveConfig } from '../api/client';
-import type { AppConfigPayload, BindingConfig, DisplayConfig, InputConfig, MqttInputConfig, SaveState } from '../types/domain';
+import type { AppConfigPayload, BindingConfig, DiscoveryDisplay, DisplayConfig, InputConfig, MqttInputConfig, SaveState } from '../types/domain';
 import { defaultBinding, defaultDisplay, defaultMqttInput, defaultTextInput, normalizeIp, seedWorkspace, DEFAULT_DISPLAY_IP } from '../utils/defaults';
 
 type ComparableConfig = Omit<AppConfigPayload, 'updated_at'>;
@@ -323,6 +323,15 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     addDisplay() {
       this.displays.push(defaultDisplay(`Display ${this.displays.length + 1}`));
+      this.refreshSaveState();
+    },
+    adoptDiscoveredDisplay(discovery: DiscoveryDisplay) {
+      const ip = normalizeIp(String(discovery.ip || ''));
+      if (!ip || this.displays.some((display) => display.ip === ip)) {
+        return;
+      }
+      const nextName = String(discovery.name || '').trim() || `Display ${this.displays.length + 1}`;
+      this.displays.push(defaultDisplay(nextName, ip));
       this.refreshSaveState();
     },
     updateDisplay(displayId: string, patch: Partial<DisplayConfig>) {
