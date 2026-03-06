@@ -21,8 +21,8 @@ test('renders the primary navigation entries', async () => {
     },
   });
 
-  expect(await screen.findByText('Dashboard')).toBeInTheDocument();
-  expect(screen.getByText('Displays')).toBeInTheDocument();
-  expect(screen.getByText('Inputs')).toBeInTheDocument();
-  expect(screen.getByText('Settings')).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Displays' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Inputs' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
 });

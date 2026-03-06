@@ -1,0 +1,226 @@
+<script setup lang="ts">
+import { computed } from 'vue';
+
+import { useDisplayActions } from '../../composables/useDisplayActions';
+import { useTopicBrowser } from '../../composables/useTopicBrowser';
+import { useRuntimeStore } from '../../stores/runtime';
+import { useWorkspaceStore } from '../../stores/workspace';
+import { splitTopic } from '../../utils/mqtt';
+import BindingChips from './BindingChips.vue';
+import TopicBrowser from '../mqtt/TopicBrowser.vue';
+
+const props = defineProps<{
+  inputId: string;
+}>();
+
+const workspace = useWorkspaceStore();
+const runtime = useRuntimeStore();
+const actions = useDisplayActions();
+
+const input = computed(() => workspace.inputById(props.inputId));
+const assignedDisplays = computed(() => workspace.assignedDisplays(props.inputId));
+const liveValue = computed(() => runtime.inputValues[props.inputId]?.value || '-');
+
+const browser = useTopicBrowser(() => {
+  const current = input.value;
+  if (!current || current.kind !== 'mqtt') {
+    return {
+      brokerHost: '',
+      brokerPort: 1883,
+      topic: '',
+      topicSearch: '',
+      jsonKey: '',
+      timeout: 4,
+    };
+  }
+  return {
+    brokerHost: current.brokerHost,
+    brokerPort: current.brokerPort,
+    topic: current.topic,
+    topicSearch: current.topicSearch,
+    jsonKey: current.jsonKey,
+    timeout: current.timeout,
+  };
+});
+
+const browserItems = computed(() => browser.items.value);
+const browserBreadcrumb = computed(() => browser.breadcrumb.value);
+
+async function sendNow() {
+  if (input.value?.kind !== 'mqtt') {
+    return;
+  }
+  await actions.sendMqttInputToDisplays(input.value, assignedDisplays.value);
+}
+
+async function fetchNow() {
+  if (input.value?.kind !== 'mqtt') {
+    return;
+  }
+  const detail = await actions.fetchMqttInputValue(input.value);
+  runtime.setInputValue(input.value.id, {
+    value: detail.preview,
+    rawPayload: detail.rawPayload,
+    topic: detail.topic,
+    updatedAtMs: detail.receivedAtMs || Date.now(),
+    messageNo: detail.messageNo,
+    stale: false,
+  });
+}
+
+function updateField(field: string, value: string | number) {
+  if (!input.value || input.value.kind !== 'mqtt') {
+    return;
+  }
+  workspace.updateInput(input.value.id, { [field]: value } as never);
+}
+
+function selectTopic(path: string) {
+  if (!input.value || input.value.kind !== 'mqtt') {
+    return;
+  }
+  workspace.updateInput(input.value.id, { topic: path });
+}
+
+function jumpToPath(path: string) {
+  void browser.navigate(path);
+}
+
+function navigateItem(item: { path: string }) {
+  void browser.navigate(item.path);
+}
+
+function selectItem(item: { path: string }) {
+  selectTopic(item.path);
+}
+
+const samplePreview = computed(() => browser.detail.value?.previewValue || liveValue.value);
+const samplePayload = computed(() => browser.detail.value?.rawPayload || runtime.inputValues[props.inputId]?.rawPayload || '-');
+const keyChips = computed(() => browser.detail.value?.jsonKeys || []);
+const pathSegments = computed(() => splitTopic(input.value?.kind === 'mqtt' ? input.value.topic : ''));
+</script>
+
+<template>
+  <section v-if="input && input.kind === 'mqtt'" class="editor-panel">
+    <div class="editor-head">
+      <div>
+        <p class="eyebrow">MQTT Input</p>
+        <h2>{{ input.name }}</h2>
+      </div>
+      <div class="inline-actions">
+        <button type="button" class="ghost-btn" @click="browser.sync()">Topics syncen</button>
+        <button type="button" class="ghost-btn" @click="fetchNow">Wert laden</button>
+        <button type="button" class="primary-btn" @click="sendNow">An Displays senden</button>
+      </div>
+    </div>
+
+    <div class="field-grid three">
+      <div class="field-stack">
+        <label>Name</label>
+        <input :value="input.name" @input="updateField('name', ($event.target as HTMLInputElement).value)" />
+      </div>
+      <div class="field-stack">
+        <label>Broker-IP</label>
+        <input :value="input.brokerHost" @input="updateField('brokerHost', ($event.target as HTMLInputElement).value)" />
+      </div>
+      <div class="field-stack">
+        <label>Port</label>
+        <input type="number" min="1" max="65535" :value="input.brokerPort" @input="updateField('brokerPort', Number(($event.target as HTMLInputElement).value))" />
+      </div>
+    </div>
+
+    <div class="field-grid three">
+      <div class="field-stack">
+        <label>Auto senden</label>
+        <select :value="input.autoMode" @change="updateField('autoMode', ($event.target as HTMLSelectElement).value)">
+          <option value="realtime">real time</option>
+          <option v-for="sec in 10" :key="sec" :value="String(sec)">{{ sec }}s</option>
+          <option value="off">off</option>
+        </select>
+      </div>
+      <div class="field-stack">
+        <label>Anzeigezeit</label>
+        <select :value="input.displayMode" @change="updateField('displayMode', ($event.target as HTMLSelectElement).value)">
+          <option v-for="sec in 10" :key="sec" :value="String(sec)">{{ sec }}s</option>
+          <option value="until-change">bis wertänderung</option>
+        </select>
+      </div>
+      <div class="field-stack">
+        <label>Stale-Guard</label>
+        <select :value="input.maxStaleMs" @change="updateField('maxStaleMs', ($event.target as HTMLSelectElement).value)">
+          <option value="0">off</option>
+          <option value="500">0.5s</option>
+          <option value="1000">1s</option>
+          <option value="1500">1.5s</option>
+          <option value="2000">2s</option>
+          <option value="2500">2.5s</option>
+          <option value="5000">5s</option>
+          <option value="10000">10s</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field-grid two">
+      <div class="field-stack">
+        <label>Topic-Suche</label>
+        <input :value="input.topicSearch" placeholder="topic / payload / key" @input="updateField('topicSearch', ($event.target as HTMLInputElement).value)" />
+      </div>
+      <div class="field-stack">
+        <label>Gewähltes Topic</label>
+        <input :value="input.topic" placeholder="Topic aus dem Browser wählen" @input="updateField('topic', ($event.target as HTMLInputElement).value)" />
+      </div>
+    </div>
+
+    <div class="field-grid topic-layout">
+      <TopicBrowser
+        :items="browserItems"
+        :breadcrumb="browserBreadcrumb"
+        @navigate="navigateItem"
+        @select="selectItem"
+        @jump="jumpToPath"
+      />
+
+      <section class="topic-detail-card">
+        <p class="eyebrow">Topic Detail</p>
+        <strong>{{ input.topic || pathSegments.join('/') || '-' }}</strong>
+        <div class="preview-panel">
+          <span>Letzter Wert</span>
+          <strong>{{ samplePreview }}</strong>
+        </div>
+        <div class="field-stack">
+          <label>JSON-Key</label>
+          <input :value="input.jsonKey" placeholder="balance" @input="updateField('jsonKey', ($event.target as HTMLInputElement).value)" />
+        </div>
+        <div class="tag-row">
+          <button
+            v-for="key in keyChips"
+            :key="key"
+            type="button"
+            class="tag-pill"
+            :data-selected="input.jsonKey === key"
+            @click="updateField('jsonKey', key)"
+          >
+            {{ key }}
+          </button>
+        </div>
+        <div class="field-stack">
+          <label>Template</label>
+          <input :value="input.template" placeholder="Balance: {value}" @input="updateField('template', ($event.target as HTMLInputElement).value)" />
+        </div>
+        <div class="field-stack">
+          <label>Payload-Sample</label>
+          <textarea readonly :value="samplePayload" />
+        </div>
+      </section>
+    </div>
+
+    <div class="field-stack">
+      <label>Ziel-Displays</label>
+      <BindingChips
+        :displays="workspace.displays"
+        :selected-ids="workspace.assignedDisplayIds(input.id)"
+        @toggle="workspace.toggleDisplayAssignment(input.id, $event)"
+      />
+    </div>
+  </section>
+</template>
