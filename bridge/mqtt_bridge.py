@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -11,11 +12,14 @@ from collections import deque
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 from urllib.parse import parse_qs, urlparse
 
 import paho.mqtt.client as mqtt
 
 LOG = logging.getLogger('mqtt-bridge')
+_MISSING = object()
 
 
 def _decode_payload(data: bytes, limit: int = 2000) -> str:
@@ -84,6 +88,83 @@ def _topic_matches_any(topic: str, topic_filters: tuple[str, ...]) -> bool:
     return False
 
 
+def _path_value(obj: Any, path: str) -> Any:
+    if not path:
+        return obj
+    current = obj
+    for part in [item.strip() for item in path.split('.') if item.strip()]:
+        if current is None:
+            return _MISSING
+        if isinstance(current, list) and part.isdigit():
+            idx = int(part)
+            if idx < 0 or idx >= len(current):
+                return _MISSING
+            current = current[idx]
+            continue
+        if isinstance(current, dict):
+            if part not in current:
+                return _MISSING
+            current = current.get(part)
+            continue
+        return _MISSING
+    return current
+
+
+def _extract_payload_value(raw_payload: str, json_key: str) -> str:
+    key = str(json_key or '').strip()
+    if not key:
+        return str(raw_payload or '')
+    parsed = json.loads(str(raw_payload or ''))
+    selected = _path_value(parsed, key)
+    if selected is _MISSING:
+        raise KeyError(f'json key not found: {key}')
+    if isinstance(selected, (dict, list)):
+        return json.dumps(selected, ensure_ascii=True)
+    return str(selected)
+
+
+def _payload_timestamp_ms(raw_payload: str) -> int | None:
+    try:
+        parsed = json.loads(str(raw_payload or ''))
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    ts = parsed.get('ts')
+    if isinstance(ts, (int, float)):
+        val = float(ts)
+        return int(val if val > 1e12 else val * 1000)
+
+    utc = parsed.get('timestamp_utc')
+    if isinstance(utc, str) and utc.strip():
+        try:
+            norm = utc.strip().replace('Z', '+00:00')
+            import datetime as _dt
+            return int(_dt.datetime.fromisoformat(norm).timestamp() * 1000)
+        except Exception:
+            return None
+    return None
+
+
+def _display_mode_to_seconds(mode: str, fallback: int = 8) -> int | None:
+    value = str(mode or '').strip().lower()
+    if value == 'until-change':
+        return None
+    try:
+        sec = int(float(value))
+    except Exception:
+        sec = int(fallback)
+    return max(1, min(sec, 120))
+
+
+def _format_template(template: str, value: str) -> str:
+    t = str(template or '').strip() or '{value}'
+    if '{value}' in t:
+        return t.replace('{value}', value)
+    return f'{t} {value}'.strip()
+
+
 @dataclass
 class LiveSubscriber:
     subscriber_id: str
@@ -95,9 +176,15 @@ class LiveSubscriber:
 
 
 class LiveSession:
-    def __init__(self, broker_host: str, broker_port: int) -> None:
+    def __init__(
+        self,
+        broker_host: str,
+        broker_port: int,
+        event_callback: Any | None = None,
+    ) -> None:
         self.broker_host = broker_host
         self.broker_port = broker_port
+        self._event_callback = event_callback
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._values: dict[str, dict[str, Any]] = {}
@@ -156,6 +243,8 @@ class LiveSession:
         now_ms = int(time.time() * 1000)
         keys = _extract_json_keys(payload)
 
+        callback = self._event_callback
+        callback_event: dict[str, Any] | None = None
         with self._cond:
             self._msg_count += 1
             message_no = self._msg_count
@@ -170,6 +259,7 @@ class LiveSession:
             self._last_msg_at_ms = now_ms
             self._values[topic] = dict(event)
             self._recent_events.append(dict(event))
+            callback_event = dict(event)
 
             subscribers = list(self._subscribers.values())
             for subscriber in subscribers:
@@ -177,6 +267,12 @@ class LiveSession:
                     self._push_subscriber_event(subscriber, event)
 
             self._cond.notify_all()
+
+        if callback is not None and callback_event is not None:
+            try:
+                callback(self.broker_host, self.broker_port, callback_event)
+            except Exception:
+                LOG.exception('Live event callback failed (%s:%s)', self.broker_host, self.broker_port)
 
     def start(self) -> None:
         self._client.connect(self.broker_host, self.broker_port, keepalive=30)
@@ -331,6 +427,17 @@ class MQTTBridge:
         self._lock = threading.Lock()
         self._topic_cache: dict[str, dict[str, Any]] = {}
         self._live_sessions: dict[str, LiveSession] = {}
+        self._auto_lock = threading.Lock()
+        self._auto_rules: dict[str, dict[str, Any]] = {}
+        self._auto_runtime: dict[str, dict[str, Any]] = {}
+        self._auto_send_queue: queue.Queue = queue.Queue(maxsize=2000)
+        self._auto_stop = threading.Event()
+        self._auto_rules_path = os.environ.get('AWTRIX_AUTO_ROUTES_FILE', '/opt/ulanzi-bridge/auto_routes.json')
+        self._auto_sender_thread = threading.Thread(target=self._auto_sender_loop, name='awtrix-auto-sender', daemon=True)
+        self._auto_tick_thread = threading.Thread(target=self._auto_tick_loop, name='awtrix-auto-tick', daemon=True)
+        self._load_auto_rules()
+        self._auto_sender_thread.start()
+        self._auto_tick_thread.start()
 
     @staticmethod
     def _key(broker_host: str, broker_port: int) -> str:
@@ -340,6 +447,358 @@ class MQTTBridge:
         key = self._key(broker_host, broker_port)
         with self._lock:
             return self._live_sessions.get(key)
+
+    @staticmethod
+    def _empty_runtime() -> dict[str, Any]:
+        return {
+            'last_message_no': 0,
+            'last_sent_value': '',
+            'last_sent_message_no': 0,
+            'pending_value': None,
+            'pending_message_no': 0,
+            'next_due_ms': 0,
+            'last_error': '',
+            'last_sent_at_ms': 0,
+        }
+
+    @staticmethod
+    def _auto_mode_interval_ms(mode: str) -> int | None:
+        clean = str(mode or '').strip().lower()
+        if clean == 'realtime':
+            return 0
+        if clean.isdigit():
+            sec = int(clean)
+            if 1 <= sec <= 10:
+                return sec * 1000
+        return None
+
+    def _normalize_auto_rule(self, raw: dict[str, Any], default_display_ip: str) -> dict[str, Any]:
+        rule_id = str(raw.get('id', '')).strip()
+        if not rule_id:
+            raise ValueError('auto rule id is required')
+
+        broker_host = str(raw.get('broker_host', '')).strip()
+        topic = str(raw.get('topic', '')).strip()
+        auto_mode = str(raw.get('auto_mode', 'off')).strip().lower()
+        if auto_mode not in {'realtime', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'}:
+            auto_mode = 'off'
+
+        if not broker_host:
+            raise ValueError(f'auto rule broker_host is required ({rule_id})')
+        if not topic:
+            raise ValueError(f'auto rule topic is required ({rule_id})')
+        if auto_mode == 'off':
+            raise ValueError(f'auto rule auto_mode is off ({rule_id})')
+
+        display_ip = str(raw.get('display_ip', default_display_ip)).strip()
+        if not display_ip:
+            raise ValueError(f'auto rule display_ip is required ({rule_id})')
+
+        broker_port = int(raw.get('broker_port', 1883))
+        max_stale_ms = int(raw.get('max_stale_ms', 2500))
+        max_stale_ms = max(0, min(max_stale_ms, 600000))
+
+        rule = {
+            'id': rule_id,
+            'title': str(raw.get('title', 'MQTT')).strip() or 'MQTT',
+            'display_ip': display_ip,
+            'broker_host': broker_host,
+            'broker_port': broker_port,
+            'topic': topic,
+            'json_key': str(raw.get('json_key', '')).strip(),
+            'template': str(raw.get('template', '{value}')),
+            'display_mode': str(raw.get('display_mode', '8')).strip() or '8',
+            'auto_mode': auto_mode,
+            'max_stale_ms': max_stale_ms,
+            'enabled': _to_bool(raw.get('enabled', True), default=True),
+        }
+        return rule
+
+    def _active_auto_brokers(self) -> list[tuple[str, int]]:
+        with self._auto_lock:
+            items = {
+                (str(rule.get('broker_host', '')), int(rule.get('broker_port', 1883)))
+                for rule in self._auto_rules.values()
+                if _to_bool(rule.get('enabled', True), default=True) and str(rule.get('auto_mode', 'off')) != 'off'
+            }
+        return sorted(items)
+
+    def _ensure_live_for_auto_rules(self) -> None:
+        for broker_host, broker_port in self._active_auto_brokers():
+            if not broker_host:
+                continue
+            try:
+                self.start_live(broker_host, broker_port)
+            except Exception:
+                LOG.exception('Failed to start live session for auto rule broker %s:%s', broker_host, broker_port)
+
+    def _load_auto_rules(self) -> None:
+        if not os.path.exists(self._auto_rules_path):
+            return
+        try:
+            with open(self._auto_rules_path, 'r', encoding='utf-8') as fh:
+                payload = json.load(fh)
+        except Exception:
+            LOG.exception('Failed to load auto rules from %s', self._auto_rules_path)
+            return
+
+        raw_rules = payload.get('rules') if isinstance(payload, dict) else []
+        if not isinstance(raw_rules, list):
+            return
+
+        rules: dict[str, dict[str, Any]] = {}
+        runtime: dict[str, dict[str, Any]] = {}
+        for item in raw_rules:
+            if not isinstance(item, dict):
+                continue
+            try:
+                rule = self._normalize_auto_rule(item, default_display_ip=str(item.get('display_ip', '')).strip())
+            except Exception:
+                continue
+            rid = str(rule['id'])
+            rules[rid] = rule
+            runtime[rid] = self._empty_runtime()
+
+        with self._auto_lock:
+            self._auto_rules = rules
+            self._auto_runtime = runtime
+
+        self._ensure_live_for_auto_rules()
+
+    def _save_auto_rules(self) -> None:
+        with self._auto_lock:
+            payload = {
+                'updated_at': int(time.time()),
+                'rules': list(self._auto_rules.values()),
+            }
+        parent = os.path.dirname(self._auto_rules_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        temp_path = f'{self._auto_rules_path}.tmp'
+        with open(temp_path, 'w', encoding='utf-8') as fh:
+            json.dump(payload, fh, ensure_ascii=True, separators=(',', ':'))
+        os.replace(temp_path, self._auto_rules_path)
+
+    def replace_auto_routes(self, display_ip: str, routes: list[dict[str, Any]]) -> dict[str, Any]:
+        base_display_ip = str(display_ip or '').strip()
+        if not base_display_ip:
+            raise ValueError('display_ip is required')
+        if not isinstance(routes, list):
+            raise ValueError('routes must be a list')
+
+        new_rules: dict[str, dict[str, Any]] = {}
+        for item in routes:
+            if not isinstance(item, dict):
+                continue
+            rule = self._normalize_auto_rule(item, default_display_ip=base_display_ip)
+            new_rules[str(rule['id'])] = rule
+
+        with self._auto_lock:
+            old_runtime = self._auto_runtime
+            self._auto_rules = new_rules
+            self._auto_runtime = {
+                rid: dict(old_runtime.get(rid, self._empty_runtime()))
+                for rid in new_rules.keys()
+            }
+
+        self._save_auto_rules()
+        self._ensure_live_for_auto_rules()
+        return self.list_auto_routes()
+
+    def list_auto_routes(self) -> dict[str, Any]:
+        with self._auto_lock:
+            routes = list(self._auto_rules.values())
+            runtime = {rid: dict(state) for rid, state in self._auto_runtime.items()}
+
+        return {
+            'count': len(routes),
+            'rules': routes,
+            'runtime': runtime,
+        }
+
+    def _queue_auto_send(self, rule: dict[str, Any], value: str, message_no: int) -> None:
+        job = {
+            'rule_id': str(rule.get('id', '')),
+            'value': str(value),
+            'message_no': int(message_no or 0),
+            'queued_at_ms': int(time.time() * 1000),
+        }
+        if not job['rule_id']:
+            return
+        try:
+            self._auto_send_queue.put_nowait(job)
+            return
+        except queue.Full:
+            pass
+        try:
+            self._auto_send_queue.get_nowait()
+        except Exception:
+            return
+        try:
+            self._auto_send_queue.put_nowait(job)
+        except Exception:
+            pass
+
+    def _post_awtrix_notify(self, display_ip: str, text: str, display_mode: str) -> None:
+        payload = {
+            'text': text,
+            'textCase': 2,
+            'center': True,
+            'stack': False,
+            'wakeup': True,
+        }
+        duration = _display_mode_to_seconds(display_mode)
+        if duration is None:
+            payload['hold'] = True
+        else:
+            payload['duration'] = duration
+
+        body = json.dumps(payload, ensure_ascii=True).encode('utf-8')
+        req = urlrequest.Request(
+            f'http://{display_ip}/api/notify',
+            data=body,
+            method='POST',
+            headers={'Content-Type': 'application/json'},
+        )
+        with urlrequest.urlopen(req, timeout=5) as res:
+            if int(getattr(res, 'status', 200)) >= 400:
+                raise RuntimeError(f'AWTRIX notify failed: HTTP {res.status}')
+
+    def _auto_sender_loop(self) -> None:
+        while not self._auto_stop.is_set():
+            try:
+                job = self._auto_send_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            rule_id = str(job.get('rule_id', ''))
+            if not rule_id:
+                continue
+            with self._auto_lock:
+                rule = self._auto_rules.get(rule_id)
+                runtime = self._auto_runtime.get(rule_id)
+                if rule is None or runtime is None:
+                    continue
+                value = str(job.get('value', ''))
+                message_no = int(job.get('message_no', 0) or 0)
+                if value == str(runtime.get('last_sent_value', '')):
+                    runtime['last_sent_message_no'] = max(int(runtime.get('last_sent_message_no', 0) or 0), message_no)
+                    continue
+                display_ip = str(rule.get('display_ip', '')).strip()
+                display_mode = str(rule.get('display_mode', '8'))
+                text = _format_template(str(rule.get('template', '{value}')), value)
+            if not display_ip:
+                continue
+
+            try:
+                self._post_awtrix_notify(display_ip=display_ip, text=text, display_mode=display_mode)
+                with self._auto_lock:
+                    current = self._auto_runtime.get(rule_id)
+                    if current is not None:
+                        current['last_sent_value'] = value
+                        current['last_sent_message_no'] = max(int(current.get('last_sent_message_no', 0) or 0), message_no)
+                        current['last_sent_at_ms'] = int(time.time() * 1000)
+                        current['last_error'] = ''
+            except Exception as exc:
+                LOG.error('Auto route send failed (%s): %s', rule_id, exc)
+                with self._auto_lock:
+                    current = self._auto_runtime.get(rule_id)
+                    if current is not None:
+                        current['last_error'] = str(exc)
+
+    def _auto_tick_loop(self) -> None:
+        while not self._auto_stop.is_set():
+            now_ms = int(time.time() * 1000)
+            due_jobs: list[tuple[dict[str, Any], str, int]] = []
+            with self._auto_lock:
+                for rule_id, rule in self._auto_rules.items():
+                    if not _to_bool(rule.get('enabled', True), default=True):
+                        continue
+                    interval = self._auto_mode_interval_ms(str(rule.get('auto_mode', 'off')))
+                    if interval is None or interval <= 0:
+                        continue
+                    runtime = self._auto_runtime.setdefault(rule_id, self._empty_runtime())
+                    pending_value = runtime.get('pending_value')
+                    if pending_value is None:
+                        continue
+                    next_due_ms = int(runtime.get('next_due_ms', 0) or 0)
+                    if next_due_ms <= 0:
+                        runtime['next_due_ms'] = now_ms + interval
+                        continue
+                    if now_ms < next_due_ms:
+                        continue
+                    value = str(pending_value)
+                    msg_no = int(runtime.get('pending_message_no', 0) or 0)
+                    runtime['pending_value'] = None
+                    runtime['pending_message_no'] = 0
+                    runtime['next_due_ms'] = now_ms + interval
+                    if value == str(runtime.get('last_sent_value', '')):
+                        runtime['last_sent_message_no'] = max(int(runtime.get('last_sent_message_no', 0) or 0), msg_no)
+                        continue
+                    due_jobs.append((dict(rule), value, msg_no))
+
+            for rule, value, msg_no in due_jobs:
+                self._queue_auto_send(rule, value, msg_no)
+
+            self._auto_stop.wait(0.2)
+
+    def _apply_event_to_rule_locked(self, rule: dict[str, Any], runtime: dict[str, Any], event: dict[str, Any]) -> None:
+        message_no = int(event.get('message_no', 0) or 0)
+        last_seen = int(runtime.get('last_message_no', 0) or 0)
+        if message_no > 0 and message_no <= last_seen:
+            return
+        if message_no > 0:
+            runtime['last_message_no'] = message_no
+
+        raw_payload = str(event.get('payload', ''))
+        json_key = str(rule.get('json_key', '')).strip()
+        try:
+            value = _extract_payload_value(raw_payload, json_key)
+        except Exception as exc:
+            runtime['last_error'] = str(exc)
+            return
+
+        max_stale_ms = int(rule.get('max_stale_ms', 0) or 0)
+        if max_stale_ms > 0:
+            payload_ts = _payload_timestamp_ms(raw_payload)
+            recv_ms = int(event.get('updated_at_ms', 0) or 0)
+            base_ts = payload_ts or recv_ms
+            if base_ts > 0 and (int(time.time() * 1000) - base_ts) > max_stale_ms:
+                return
+
+        mode = str(rule.get('auto_mode', 'off')).strip().lower()
+        if mode == 'realtime':
+            if value == str(runtime.get('last_sent_value', '')):
+                runtime['last_sent_message_no'] = max(int(runtime.get('last_sent_message_no', 0) or 0), message_no)
+                return
+            self._queue_auto_send(rule, value, message_no)
+            return
+
+        interval = self._auto_mode_interval_ms(mode)
+        if interval and interval > 0:
+            runtime['pending_value'] = value
+            runtime['pending_message_no'] = message_no
+            if int(runtime.get('next_due_ms', 0) or 0) <= 0:
+                runtime['next_due_ms'] = int(time.time() * 1000) + interval
+
+    def _on_live_event(self, broker_host: str, broker_port: int, event: dict[str, Any]) -> None:
+        topic = str(event.get('topic', '')).strip()
+        if not topic:
+            return
+        with self._auto_lock:
+            for rule_id, rule in self._auto_rules.items():
+                if not _to_bool(rule.get('enabled', True), default=True):
+                    continue
+                if str(rule.get('auto_mode', 'off')) == 'off':
+                    continue
+                if str(rule.get('broker_host', '')) != broker_host:
+                    continue
+                if int(rule.get('broker_port', 1883)) != int(broker_port):
+                    continue
+                if str(rule.get('topic', '')).strip() != topic:
+                    continue
+                runtime = self._auto_runtime.setdefault(rule_id, self._empty_runtime())
+                self._apply_event_to_rule_locked(rule, runtime, event)
 
     def sync_topics(
         self,
@@ -463,7 +922,11 @@ class MQTTBridge:
                     'already_running': True,
                 }
 
-            session = LiveSession(broker_host, broker_port)
+            session = LiveSession(
+                broker_host,
+                broker_port,
+                event_callback=self._on_live_event,
+            )
             self._live_sessions[key] = session
 
         try:
@@ -575,6 +1038,16 @@ class MQTTBridge:
         return session.snapshot(query=query, limit=limit)
 
     def shutdown(self) -> None:
+        self._auto_stop.set()
+        try:
+            self._auto_sender_thread.join(timeout=1.0)
+        except Exception:
+            pass
+        try:
+            self._auto_tick_thread.join(timeout=1.0)
+        except Exception:
+            pass
+
         with self._lock:
             sessions = list(self._live_sessions.values())
             self._live_sessions.clear()
@@ -743,6 +1216,14 @@ class Handler(BaseHTTPRequestHandler):
                     pass
             return
 
+        if parsed.path == '/auto/routes':
+            try:
+                result = self.bridge.list_auto_routes()
+                self._write_json({'ok': True, 'result': result})
+            except Exception as exc:
+                self._write_json({'ok': False, 'error': str(exc)}, code=500)
+            return
+
         self._write_json({'ok': False, 'error': 'Not found'}, code=404)
 
     def do_POST(self) -> None:
@@ -800,6 +1281,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not broker:
                     raise ValueError('broker_host is required')
                 result = self.bridge.live_snapshot(broker, port, query=query, limit=limit, auto_start=auto_start)
+                self._write_json({'ok': True, 'result': result})
+                return
+
+            if self.path == '/auto/routes/replace':
+                display_ip = str(data.get('display_ip', '')).strip()
+                routes = data.get('routes', [])
+                result = self.bridge.replace_auto_routes(display_ip=display_ip, routes=routes)
                 self._write_json({'ok': True, 'result': result})
                 return
 

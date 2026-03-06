@@ -10,6 +10,7 @@ Webapp + MQTT bridge to push dynamic content to an AWTRIX 3 display (Ulanzi).
 - Manual send + auto-send modes (`real time`, `1s..10s`, `off`)
 - Per-block stale guard to drop outdated values
 - Event-driven MQTT forwarding via SSE (no polling loop)
+- Server-side auto-routing (runs without open browser)
 - Display live screen embed via clean renderer (`/live.html`)
 
 ## Repository Layout
@@ -24,6 +25,7 @@ Webapp + MQTT bridge to push dynamic content to an AWTRIX 3 display (Ulanzi).
 - Browser UI talks to bridge API on port `8090` for MQTT operations
 - Bridge maintains persistent MQTT live sessions per broker
 - Browser auto-send uses `GET /mqtt/live/events` (SSE) with per-topic stream filters
+- Auto-routes are persisted in bridge service and keep forwarding even when no browser is open
 
 ## Requirements
 - Python `3.11+`
@@ -55,7 +57,9 @@ cp frontend/live.html /var/www/ulanzi/live.html
 
 ## Bridge API
 - `GET /health`
+- `GET /auto/routes`
 - `GET /mqtt/live/events` (SSE)
+- `POST /auto/routes/replace`
 - `POST /mqtt/topics/sync`
 - `POST /mqtt/topic/value`
 - `POST /mqtt/live/start`

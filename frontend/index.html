@@ -919,6 +919,7 @@
       markDirty();
       persistNow();
       updateLiveView(true);
+      scheduleAutoPipelineRebuild();
       setLog(`Display-IP gespeichert: ${ip}`, "ok");
     }
 
@@ -1731,146 +1732,6 @@
       }
     }
 
-    function autoIntervalMs(autoMode) {
-      const mode = String(autoMode || "off");
-      if (mode === "realtime") return 0;
-      const sec = Number(mode);
-      if (Number.isFinite(sec) && sec >= 1 && sec <= 10) return sec * 1000;
-      return null;
-    }
-
-    function clearBlockTimer(blockId) {
-      const timer = state.blockTimers[blockId];
-      if (timer && timer.handle) {
-        clearInterval(timer.handle);
-      }
-      delete state.blockTimers[blockId];
-    }
-
-    function stopAutoPush(blockId) {
-      clearBlockTimer(blockId);
-      delete state.blockPending[blockId];
-      delete state.autoLastMessageNo[blockId];
-    }
-
-    function flushPendingBlock(blockId) {
-      const pending = state.blockPending[blockId];
-      if (!pending) return;
-      delete state.blockPending[blockId];
-      queueAutoSend(blockId, pending.value, pending.messageNo);
-    }
-
-    function ensureBlockInterval(blockId) {
-      const block = findBlock(blockId);
-      if (!block || block.type !== "mqtt") {
-        clearBlockTimer(blockId);
-        return;
-      }
-
-      const interval = autoIntervalMs(block.autoMode);
-      if (!Number.isFinite(interval) || interval <= 0) {
-        clearBlockTimer(blockId);
-        return;
-      }
-
-      const existing = state.blockTimers[blockId];
-      if (existing && Number(existing.ms) === interval) {
-        return;
-      }
-      clearBlockTimer(blockId);
-      state.blockTimers[blockId] = {
-        ms: interval,
-        handle: setInterval(() => flushPendingBlock(blockId), interval)
-      };
-    }
-
-    function queueAutoSend(blockId, value, messageNo = 0) {
-      const normalized = String(value ?? "");
-      if (normalized === String(state.autoLastValue[blockId] || "")) {
-        if (Number.isFinite(Number(messageNo)) && Number(messageNo) > 0) {
-          state.autoLastMessageNo[blockId] = Number(messageNo);
-        }
-        return;
-      }
-
-      const prev = state.blockSendChains[blockId] || Promise.resolve();
-      state.blockSendChains[blockId] = prev.then(async () => {
-        const current = findBlock(blockId);
-        if (!current || current.type !== "mqtt") return;
-        if (String(current.autoMode || "off") === "off") return;
-        const text = formatTemplate(current.template, normalized);
-        await sendMqttTextToDisplay(blockId, text);
-        state.autoLastValue[blockId] = normalized;
-        updateLiveView(true);
-      }).catch((error) => {
-        const current = findBlock(blockId);
-        const title = current && current.type === "mqtt" ? (current.title || "MQTT") : "MQTT";
-        setLog(`${title}: Auto-Fehler (${error.message || error}).`, "error");
-      });
-
-      if (Number.isFinite(Number(messageNo)) && Number(messageNo) > 0) {
-        state.autoLastMessageNo[blockId] = Number(messageNo);
-      }
-    }
-
-    function applyLiveEventToBlock(block, eventData) {
-      const topic = String(eventData.topic || "").trim();
-      if (!topic || topic !== String(block.topic || "").trim()) {
-        return;
-      }
-
-      const mode = String(block.autoMode || "off");
-      if (mode === "off") {
-        return;
-      }
-
-      const messageNo = Number(eventData.message_no || 0);
-      const lastMessageNo = Number(state.autoLastMessageNo[block.id] || 0);
-      if (Number.isFinite(messageNo) && messageNo > 0 && messageNo <= lastMessageNo) {
-        return;
-      }
-
-      const rawPayload = String(eventData.payload || "");
-      const jsonKeys = Array.isArray(eventData.json_keys) ? eventData.json_keys.map((k) => String(k)) : [];
-      upsertTopicCacheItem(block, topic, rawPayload, jsonKeys);
-
-      let value;
-      try {
-        value = extractValueFromPayload(rawPayload, block.jsonKey);
-      } catch (error) {
-        setLog(`${block.title || "MQTT"}: ${error.message || error}`, "error");
-        return;
-      }
-
-      block.preview = value;
-      updateMqttPreview(block.id, value);
-
-      const payloadTsMs = payloadTimestampMs(rawPayload);
-      const receivedRaw = Number(eventData.updated_at_ms || eventData.updated_at || 0);
-      let receivedAtMs = null;
-      if (Number.isFinite(receivedRaw) && receivedRaw > 0) {
-        receivedAtMs = receivedRaw > 1e12 ? receivedRaw : receivedRaw * 1000;
-      }
-      const baseTs = payloadTsMs || receivedAtMs;
-      const ageMs = baseTs ? (Date.now() - baseTs) : null;
-      const maxStaleMsRaw = Number(block.maxStaleMs);
-      const maxStaleMs = Number.isFinite(maxStaleMsRaw) && maxStaleMsRaw >= 0 ? maxStaleMsRaw : AUTO_MAX_STALE_MS;
-      if (maxStaleMs > 0 && Number.isFinite(ageMs) && ageMs > maxStaleMs) {
-        if (Number.isFinite(messageNo) && messageNo > 0) {
-          state.autoLastMessageNo[block.id] = messageNo;
-        }
-        return;
-      }
-
-      if (mode === "realtime") {
-        queueAutoSend(block.id, value, messageNo);
-        return;
-      }
-
-      state.blockPending[block.id] = { value: String(value), messageNo: Number.isFinite(messageNo) ? messageNo : 0 };
-      ensureBlockInterval(block.id);
-    }
-
     function closeBrokerStream(brokerKey) {
       const stream = state.brokerStreams[brokerKey];
       if (!stream) return;
@@ -1882,12 +1743,15 @@
       delete state.brokerStreams[brokerKey];
     }
 
-    function streamTopicSignature(topics) {
-      return [...topics].sort((a, b) => a.localeCompare(b)).join("|");
+    function stopAutoPush(blockId) {
+      delete state.autoLastValue[blockId];
+      delete state.autoLastMessageNo[blockId];
+      delete state.blockPending[blockId];
+      delete state.blockSendChains[blockId];
     }
 
-    function requiredBrokerSubscriptions() {
-      const map = {};
+    function collectServerAutoRoutes() {
+      const routes = [];
       for (const block of state.inputBlocks) {
         if (!block || block.type !== "mqtt") continue;
         if (String(block.autoMode || "off") === "off") continue;
@@ -1895,92 +1759,40 @@
         const port = Number(block.brokerPort) || 1883;
         const topic = String(block.topic || "").trim();
         if (!host || !topic) continue;
-        const key = `${host}:${port}`;
-        if (!map[key]) {
-          map[key] = { host, port, topics: new Set() };
-        }
-        map[key].topics.add(topic);
+        routes.push({
+          id: String(block.id || ""),
+          title: String(block.title || "MQTT"),
+          broker_host: host,
+          broker_port: port,
+          topic,
+          json_key: String(block.jsonKey || ""),
+          template: String(block.template || "{value}"),
+          display_mode: String(block.displayMode || "8"),
+          auto_mode: String(block.autoMode || "off"),
+          max_stale_ms: Number(block.maxStaleMs) || AUTO_MAX_STALE_MS,
+          enabled: true
+        });
       }
-      return map;
+      return routes;
     }
 
-    function handleBrokerEvent(brokerKey, payload) {
-      const eventTopic = String(payload.topic || "").trim();
-      if (!eventTopic) return;
-
-      const msgNo = Number(payload.message_no || 0);
-      const lastBrokerMsgNo = Number(state.brokerLastMessageNo[brokerKey] || 0);
-      if (Number.isFinite(msgNo) && msgNo > 0) {
-        if (msgNo <= lastBrokerMsgNo) {
-          return;
+    async function syncServerAutoRoutes(showStatus = false) {
+      const displayIp = normalizeIp(displayIpEl.value);
+      if (!displayIp) {
+        if (showStatus) {
+          setLog("Auto-Routing: Display-IP fehlt.", "error");
         }
-        state.brokerLastMessageNo[brokerKey] = msgNo;
-      }
-
-      for (const block of state.inputBlocks) {
-        if (!block || block.type !== "mqtt") continue;
-        if (String(block.autoMode || "off") === "off") continue;
-        if (brokerKey !== `${normalizeIp(block.brokerHost || "")}:${Number(block.brokerPort) || 1883}`) continue;
-        if (String(block.topic || "").trim() !== eventTopic) continue;
-        applyLiveEventToBlock(block, payload);
-      }
-    }
-
-    function ensureBrokerStream(brokerKey, host, port, topics) {
-      const sortedTopics = [...topics].sort((a, b) => a.localeCompare(b));
-      const signature = streamTopicSignature(sortedTopics);
-      const existing = state.brokerStreams[brokerKey];
-      if (existing && existing.signature === signature) {
         return;
       }
-      closeBrokerStream(brokerKey);
 
-      const params = new URLSearchParams();
-      params.set("broker_host", host);
-      params.set("broker_port", String(port));
-      params.set("heartbeat_s", "12");
-      const lastNo = Number(state.brokerLastMessageNo[brokerKey] || 0);
-      if (Number.isFinite(lastNo) && lastNo > 0) {
-        params.set("last_message_no", String(lastNo));
-      }
-      for (const topic of sortedTopics) {
-        params.append("topic", topic);
-      }
+      const routes = collectServerAutoRoutes();
+      const result = await postBridge("/auto/routes/replace", {
+        display_ip: displayIp,
+        routes
+      });
 
-      const url = `${bridgeBaseUrl()}/mqtt/live/events?${params.toString()}`;
-      const es = new EventSource(url);
-      state.brokerStreams[brokerKey] = { es, signature, host, port };
-
-      const handleStreamEvent = (event) => {
-        if (!event || !event.data) return;
-        let payload;
-        try {
-          payload = JSON.parse(event.data);
-        } catch (_) {
-          return;
-        }
-        handleBrokerEvent(brokerKey, payload);
-      };
-      es.onmessage = handleStreamEvent;
-      es.addEventListener("mqtt", handleStreamEvent);
-
-      es.onerror = () => {
-        // EventSource reconnects automatically.
-      };
-    }
-
-    function rebuildBrokerStreams() {
-      const required = requiredBrokerSubscriptions();
-      const requiredKeys = new Set(Object.keys(required));
-
-      for (const key of Object.keys(state.brokerStreams)) {
-        if (!requiredKeys.has(key)) {
-          closeBrokerStream(key);
-        }
-      }
-
-      for (const [key, cfg] of Object.entries(required)) {
-        ensureBrokerStream(key, cfg.host, cfg.port, cfg.topics);
+      if (showStatus) {
+        setLog(`Auto-Routing aktiv: ${result.count} Regel(n).`, "ok");
       }
     }
 
@@ -1997,48 +1809,17 @@
     function startAutoPush(blockId) {
       const block = findBlock(blockId);
       if (!block || block.type !== "mqtt") return;
-      if (state.autoLastValue[block.id] === undefined) {
-        state.autoLastValue[block.id] = String(block.preview || "");
-      }
-      ensureBlockInterval(block.id);
-      rebuildBrokerStreams();
+      restartAllAutoPushers();
     }
 
     function restartAllAutoPushers() {
-      for (const id of Object.keys(state.blockTimers)) {
-        clearBlockTimer(id);
+      for (const key of Object.keys(state.brokerStreams)) {
+        closeBrokerStream(key);
       }
       state.blockPending = {};
-
-      const validIds = new Set(state.inputBlocks.map((b) => b.id));
-      for (const id of Object.keys(state.autoLastValue)) {
-        if (!validIds.has(id)) {
-          delete state.autoLastValue[id];
-        }
-      }
-      for (const id of Object.keys(state.autoLastMessageNo)) {
-        if (!validIds.has(id)) {
-          delete state.autoLastMessageNo[id];
-        }
-      }
-
-      for (const block of state.inputBlocks) {
-        if (!block || block.type !== "mqtt") continue;
-        const mode = String(block.autoMode || "off");
-        if (state.autoLastValue[block.id] === undefined) {
-          state.autoLastValue[block.id] = String(block.preview || "");
-        }
-        if (mode === "off" || mode === "realtime") {
-          clearBlockTimer(block.id);
-          if (mode === "off") {
-            delete state.autoLastMessageNo[block.id];
-          }
-        } else {
-          ensureBlockInterval(block.id);
-        }
-      }
-
-      rebuildBrokerStreams();
+      syncServerAutoRoutes(false).catch((error) => {
+        setLog(`Auto-Routing Sync fehlgeschlagen (${error.message}).`, "error");
+      });
     }
 
     async function sendMqttBlock(blockId) {
@@ -2076,9 +1857,11 @@
     clearBtn.addEventListener("click", clearDisplay);
     displayIpEl.addEventListener("input", () => {
       schedulePersist();
+      scheduleAutoPipelineRebuild();
     });
     displayIpEl.addEventListener("change", () => {
       updateLiveView(true);
+      scheduleAutoPipelineRebuild();
     });
 
     addTextBlockBtn.addEventListener("click", () => {
@@ -2137,7 +1920,7 @@
           setLog(`${block.title || "MQTT"}: Stale-Guard = ${block.maxStaleMs}ms.`, "ok");
         }
       }
-      if (["brokerHost", "brokerPort", "topic"].includes(field)) {
+      if (["brokerHost", "brokerPort", "topic", "jsonKey", "template", "displayMode", "maxStaleMs"].includes(field)) {
         scheduleAutoPipelineRebuild();
       }
     });
@@ -2226,6 +2009,7 @@
           block.jsonKey = String(button.dataset.key || "").trim();
           saveInputBlocks();
           refreshTopicBrowser(blockId);
+          scheduleAutoPipelineRebuild();
           setLog(`${block.title || "MQTT"}: JSON-Key gesetzt (${block.jsonKey}).`, "ok");
         }
         return;

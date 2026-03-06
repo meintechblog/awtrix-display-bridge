@@ -1,4 +1,6 @@
 import unittest
+import os
+import tempfile
 from types import SimpleNamespace
 
 from bridge.mqtt_bridge import LiveSession, MQTTBridge, _topic_matches_filter
@@ -50,23 +52,120 @@ class LiveSessionTests(unittest.TestCase):
 
 
 class BridgeTests(unittest.TestCase):
+    def make_bridge(self):
+        tmpdir = tempfile.TemporaryDirectory()
+        os.environ['AWTRIX_AUTO_ROUTES_FILE'] = os.path.join(tmpdir.name, 'auto-rules.json')
+        bridge = MQTTBridge()
+        return bridge, tmpdir
+
     def _emit(self, session: LiveSession, topic: str, payload: str):
         msg = SimpleNamespace(topic=topic, payload=payload.encode('utf-8'))
         session._on_message(None, None, msg)
 
     def test_sync_topics_uses_existing_live_session(self):
-        bridge = MQTTBridge()
-        session = LiveSession('broker.local', 1883)
-        bridge._live_sessions['broker.local:1883'] = session
+        bridge, tmpdir = self.make_bridge()
+        try:
+            session = LiveSession('broker.local', 1883)
+            bridge._live_sessions['broker.local:1883'] = session
 
-        self._emit(session, 'trading/status/balance', '{"balance":123}')
-        self._emit(session, 'trading/status/equity', '{"equity":456}')
+            self._emit(session, 'trading/status/balance', '{"balance":123}')
+            self._emit(session, 'trading/status/equity', '{"equity":456}')
 
-        result = bridge.sync_topics('broker.local', 1883, timeout_s=0.1, max_topics=100)
-        topics = [item['topic'] for item in result['topics']]
-        self.assertIn('trading/status/balance', topics)
-        self.assertIn('trading/status/equity', topics)
-        self.assertEqual(result['source'], 'live-session')
+            result = bridge.sync_topics('broker.local', 1883, timeout_s=0.1, max_topics=100)
+            topics = [item['topic'] for item in result['topics']]
+            self.assertIn('trading/status/balance', topics)
+            self.assertIn('trading/status/equity', topics)
+            self.assertEqual(result['source'], 'live-session')
+        finally:
+            bridge.shutdown()
+            tmpdir.cleanup()
+            os.environ.pop('AWTRIX_AUTO_ROUTES_FILE', None)
+
+    def test_auto_route_realtime_extracts_json_key(self):
+        bridge, tmpdir = self.make_bridge()
+        queued = []
+        bridge._queue_auto_send = lambda rule, value, message_no: queued.append((rule['id'], value, message_no))
+        bridge._ensure_live_for_auto_rules = lambda: None
+        try:
+            bridge.replace_auto_routes(
+                display_ip='192.168.3.126',
+                routes=[
+                    {
+                        'id': 'rule-1',
+                        'title': 'Balance',
+                        'broker_host': 'broker.local',
+                        'broker_port': 1883,
+                        'topic': 'status/main',
+                        'json_key': 'balance',
+                        'template': 'Balance: {value}',
+                        'display_mode': '8',
+                        'auto_mode': 'realtime',
+                        'max_stale_ms': 2500,
+                    }
+                ],
+            )
+
+            bridge._on_live_event(
+                'broker.local',
+                1883,
+                {
+                    'topic': 'status/main',
+                    'payload': '{"balance":456.7}',
+                    'updated_at_ms': 1772800000000,
+                    'message_no': 21,
+                },
+            )
+
+            self.assertEqual(len(queued), 1)
+            self.assertEqual(queued[0][0], 'rule-1')
+            self.assertEqual(queued[0][1], '456.7')
+        finally:
+            bridge.shutdown()
+            tmpdir.cleanup()
+            os.environ.pop('AWTRIX_AUTO_ROUTES_FILE', None)
+
+    def test_auto_route_interval_stores_pending_value(self):
+        bridge, tmpdir = self.make_bridge()
+        queued = []
+        bridge._queue_auto_send = lambda rule, value, message_no: queued.append((rule['id'], value, message_no))
+        bridge._ensure_live_for_auto_rules = lambda: None
+        try:
+            bridge.replace_auto_routes(
+                display_ip='192.168.3.126',
+                routes=[
+                    {
+                        'id': 'rule-interval',
+                        'title': 'Balance',
+                        'broker_host': 'broker.local',
+                        'broker_port': 1883,
+                        'topic': 'status/main',
+                        'json_key': '',
+                        'template': '{value}',
+                        'display_mode': '8',
+                        'auto_mode': '2',
+                        'max_stale_ms': 0,
+                    }
+                ],
+            )
+
+            bridge._on_live_event(
+                'broker.local',
+                1883,
+                {
+                    'topic': 'status/main',
+                    'payload': '999',
+                    'updated_at_ms': 1772800000000,
+                    'message_no': 11,
+                },
+            )
+
+            runtime = bridge._auto_runtime.get('rule-interval', {})
+            self.assertEqual(runtime.get('pending_value'), '999')
+            self.assertEqual(len(queued), 0)
+        finally:
+            bridge.shutdown()
+            tmpdir.cleanup()
+            os.environ.pop('AWTRIX_AUTO_ROUTES_FILE', None)
 
 
 if __name__ == '__main__':
