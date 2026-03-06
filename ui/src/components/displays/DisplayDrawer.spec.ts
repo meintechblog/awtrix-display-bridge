@@ -11,11 +11,15 @@ test('emits clear and test-send actions for the selected display', async () => {
         name: 'Main',
         ip: '192.168.3.126',
         status: 'online',
+        batteryLevel: 100,
+        externalPowerHint: true,
       },
       assignedInputs: [],
     },
   });
 
+  expect(screen.getByText('Akku 100%')).toBeInTheDocument();
+  expect(screen.getByText('Strom an')).toBeInTheDocument();
   await fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
   await fireEvent.click(screen.getByRole('button', { name: 'Test senden' }));
 

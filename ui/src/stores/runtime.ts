@@ -27,7 +27,7 @@ export const useRuntimeStore = defineStore('runtime', {
     connectedBrokerCount: (state) => Object.values(state.streamStates).filter((item) => item.state === 'open').length,
   },
   actions: {
-    upsertDisplayState(payload: { displayId: string; state: DisplayRuntimeState['state']; updatedAtMs: number; version?: string; app?: string; wifiSignal?: number | null; matrix?: boolean | null; error?: string }) {
+    upsertDisplayState(payload: { displayId: string; state: DisplayRuntimeState['state']; updatedAtMs: number; version?: string; app?: string; wifiSignal?: number | null; matrix?: boolean | null; batteryLevel?: number | null; batteryRaw?: number | null; externalPowerHint?: boolean; error?: string }) {
       this.displayStates[payload.displayId] = {
         ...(this.displayStates[payload.displayId] || {}),
         state: payload.state,
@@ -36,6 +36,9 @@ export const useRuntimeStore = defineStore('runtime', {
         app: payload.app,
         wifiSignal: payload.wifiSignal ?? null,
         matrix: payload.matrix ?? null,
+        batteryLevel: payload.batteryLevel ?? null,
+        batteryRaw: payload.batteryRaw ?? null,
+        externalPowerHint: payload.externalPowerHint ?? false,
         error: payload.error || '',
       };
     },
@@ -64,6 +67,9 @@ export const useRuntimeStore = defineStore('runtime', {
             app: typeof stats.app === 'string' ? stats.app : undefined,
             wifiSignal: typeof stats.wifi_signal === 'number' ? stats.wifi_signal : null,
             matrix: typeof stats.matrix === 'boolean' ? stats.matrix : null,
+            batteryLevel: typeof stats.bat === 'number' ? stats.bat : null,
+            batteryRaw: typeof stats.bat_raw === 'number' ? stats.bat_raw : null,
+            externalPowerHint: typeof stats.bat === 'number' ? stats.bat >= 100 : false,
           });
         } catch (error) {
           this.upsertDisplayState({

@@ -33,6 +33,8 @@ const cardModels = computed(() => workspace.displays.map((display) => {
     app: state?.app,
     wifiSignal: state?.wifiSignal,
     matrix: state?.matrix,
+    batteryLevel: state?.batteryLevel,
+    externalPowerHint: state?.externalPowerHint,
   };
 }));
 

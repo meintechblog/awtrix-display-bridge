@@ -79,6 +79,9 @@ export interface DisplayRuntimeState {
   app?: string;
   wifiSignal?: number | null;
   matrix?: boolean | null;
+  batteryLevel?: number | null;
+  batteryRaw?: number | null;
+  externalPowerHint?: boolean;
   error?: string;
 }
 

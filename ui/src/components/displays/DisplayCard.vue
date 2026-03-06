@@ -9,6 +9,8 @@ defineProps<{
     status: string;
     previewUrl: string;
     activeContent: string;
+    batteryLevel?: number | null;
+    externalPowerHint?: boolean;
     assignedInputs: Array<{ id: string; name: string; kind: string }>;
   };
 }>();
@@ -34,6 +36,11 @@ defineEmits<{
           :tone="display.status === 'online' ? 'ok' : display.status === 'offline' ? 'danger' : 'warn'"
         />
       </header>
+
+      <div v-if="typeof display.batteryLevel === 'number'" class="tag-row">
+        <span class="tag-pill">Akku {{ display.batteryLevel }}%</span>
+        <span v-if="display.externalPowerHint" class="tag-pill">Strom an</span>
+      </div>
 
       <iframe
         :src="display.previewUrl"

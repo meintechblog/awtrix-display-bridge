@@ -12,6 +12,8 @@ defineProps<{
     app?: string;
     wifiSignal?: number | null;
     matrix?: boolean | null;
+    batteryLevel?: number | null;
+    externalPowerHint?: boolean;
     previewUrl?: string;
   } | null;
   assignedInputs: Array<{ id: string; name: string; kind: string }>;
@@ -57,6 +59,8 @@ defineEmits<{
       <span class="tag-pill">App {{ display.app || '-' }}</span>
       <span class="tag-pill">Signal {{ display.wifiSignal ?? '-' }}</span>
       <span class="tag-pill">Matrix {{ display.matrix ? 'an' : 'aus' }}</span>
+      <span v-if="typeof display.batteryLevel === 'number'" class="tag-pill">Akku {{ display.batteryLevel }}%</span>
+      <span v-if="display.externalPowerHint" class="tag-pill">Strom an</span>
     </div>
 
     <iframe
