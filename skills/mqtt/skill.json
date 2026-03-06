@@ -1,0 +1,8 @@
+{
+  "id": "mqtt",
+  "name": "MQTT Skill",
+  "category": "integration",
+  "description": "Reads values from MQTT topics and maps them into normalized outputs.",
+  "config": ["name", "brokerHost", "brokerPort", "topic", "jsonKey", "timeout"],
+  "delivery": ["sendMode", "displayDuration", "template"]
+}

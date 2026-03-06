@@ -1,0 +1,8 @@
+{
+  "id": "text",
+  "name": "Text Skill",
+  "category": "content",
+  "description": "Provides static or manually edited text values.",
+  "config": ["name", "text"],
+  "delivery": ["sendMode", "displayDuration", "template"]
+}

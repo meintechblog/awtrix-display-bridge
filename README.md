@@ -1,77 +1,103 @@
-# AWTRIX Display Bridge
+# AWTRIX Skill Bridge
 
-Webapp + MQTT bridge to push dynamic content to an AWTRIX 3 display (Ulanzi).
+A modular AWTRIX display bridge with a dashboard-first web UI, built-in skills, and generic delivery policies.
+
+## Core Idea
+
+This project separates two concerns:
+- `Skills` fetch or produce values from external systems
+- `Delivery` decides how those values are sent to AWTRIX displays
+
+That keeps the display pipeline generic while making integrations easy to extend.
+
+## Built-in Skills
+
+- `Text Skill`
+- `MQTT Skill`
+
+See [skills/README.md](skills/README.md) for the contribution model.
+
+## Contributing
+
+Want to connect another system?
+
+Add a new built-in skill and open a pull request.
+
+A new skill should define:
+- its own config shape
+- how it resolves a normalized value
+- how it is presented in the UI
+- tests for config/runtime behavior
 
 ## Features
-- Dark-mode web UI for display configuration
-- Input blocks (text + MQTT)
-- MQTT topic sync and hierarchical topic browser
-- JSON key extraction from payloads
-- Manual send + auto-send modes (`real time`, `1s..10s`, `off`)
-- Per-block stale guard to drop outdated values
-- Event-driven MQTT forwarding via SSE (no polling loop)
-- Server-side auto-routing (runs without open browser)
+
+- Dark-mode dashboard web UI
+- Multi-display configuration
+- Built-in skill library (`text`, `mqtt`)
+- Hierarchical MQTT topic browser
+- Generic delivery policy per skill
+- Server-side MQTT auto-routing without open browser tab
 - Display live screen embed via clean renderer (`/live.html`)
+- Firmware version checks and async update jobs
+- Always-on display discovery in local subnets
 
 ## Repository Layout
-- `frontend/index.html` - Single-file web UI
-- `frontend/live.html` - Clean AWTRIX live renderer (no AWTRIX UI controls)
-- `bridge/mqtt_bridge.py` - MQTT helper API (port `8090`)
-- `deploy/systemd/ulanzi-mqtt-bridge.service` - Systemd service unit
-- `tests/test_mqtt_bridge.py` - Bridge unit tests
+
+- `ui/` - Vue/Vite dashboard application
+- `bridge/` - Python runtime bridge and APIs
+- `skills/` - built-in skill definitions and contributor docs
+- `frontend/live.html` - clean AWTRIX live renderer
+- `deploy/systemd/` - deployment units
+- `tests/` - Python regression tests
 
 ## Runtime Architecture
-- Browser UI talks to AWTRIX device API directly (`http://<display-ip>/api/...`)
-- Browser UI talks to bridge API on port `8090` for MQTT operations
-- Bridge maintains persistent MQTT live sessions per broker
-- Browser auto-send uses `GET /mqtt/live/events` (SSE) with per-topic stream filters
-- Auto-routes are persisted in bridge service and keep forwarding even when no browser is open
+
+- Browser UI talks to the bridge API on port `8090`
+- Built-in skills resolve values from configured sources
+- Generic delivery policies transform skill outputs into AWTRIX notifications
+- MQTT live sessions are kept server-side
+- Auto-routes continue to run when no browser is open
 
 ## Requirements
+
 - Python `3.11+`
 - `paho-mqtt`
-- No separate external web server required; the repo ships a SPA-capable Python webapp server
+- Node.js `20+` for UI build
 
 ## Quick Start (Debian)
+
 ```bash
-# 1) Install deps
 apt update
-apt install -y python3 python3-pip
+apt install -y python3 python3-pip nodejs npm
 pip3 install -r requirements.txt
 
-# 2) Deploy bridge
-mkdir -p /opt/ulanzi-bridge
-cp bridge/mqtt_bridge.py /opt/ulanzi-bridge/mqtt_bridge.py
-chmod +x /opt/ulanzi-bridge/mqtt_bridge.py
-
-# 3) Deploy service
-cp deploy/systemd/ulanzi-mqtt-bridge.service /etc/systemd/system/ulanzi-mqtt-bridge.service
-systemctl daemon-reload
-systemctl enable --now ulanzi-mqtt-bridge.service
-
-# 4) Deploy frontend
-mkdir -p /var/www/ulanzi
+mkdir -p /opt/ulanzi-bridge /var/www/ulanzi
+cp -r bridge /opt/ulanzi-bridge/
+cp deploy/systemd/ulanzi-mqtt-bridge.service /etc/systemd/system/
+cp deploy/systemd/ulanzi-web.service /etc/systemd/system/
 cp -r ui/dist/* /var/www/ulanzi/
 cp frontend/live.html /var/www/ulanzi/live.html
 
-# 5) Deploy web service
-cp deploy/systemd/ulanzi-web.service /etc/systemd/system/ulanzi-web.service
 systemctl daemon-reload
-systemctl enable --now ulanzi-web.service
+systemctl enable --now ulanzi-mqtt-bridge.service ulanzi-web.service
 ```
 
 ## Bridge API
+
 - `GET /health`
-- `GET /auto/routes`
-- `GET /mqtt/live/events` (SSE)
+- `GET /api/config`
+- `GET /api/dashboard`
+- `GET /api/displays`
+- `GET /api/inputs`
+- `GET /api/bindings`
+- `GET /api/topics/browser`
+- `GET /api/topics/value`
+- `GET /api/display/update-status`
+- `POST /api/display/update/start`
+- `GET /api/display/update/job`
 - `POST /auto/routes/replace`
-- `POST /mqtt/topics/sync`
-- `POST /mqtt/topic/value`
-- `POST /mqtt/live/start`
-- `POST /mqtt/live/stop`
-- `POST /mqtt/live/snapshot`
 
 ## Notes
-- The UI is optimized for low-latency updates and ignores stale MQTT values based on per-block stale guard.
-- For predictable behavior, ensure broker and display are on stable LAN.
-- MQTT itself has no universal \"list all topics\" RPC; sync is based on topics seen by the live session.
+
+- The persisted config still uses the `inputs` key for backward compatibility, but the product surface now treats them as skills.
+- Delivery behavior is normalized through shared fields instead of being owned by one specific skill type.
