@@ -1,4 +1,4 @@
-export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 export type DisplayHealth = 'online' | 'offline' | 'stale' | 'unknown';
 export type InputKind = 'text' | 'mqtt';
 
@@ -27,7 +27,6 @@ export interface MqttInputConfig {
   template: string;
   displayMode: string;
   autoMode: string;
-  maxStaleMs: string;
   timeout: number;
   topicSearch: string;
 }

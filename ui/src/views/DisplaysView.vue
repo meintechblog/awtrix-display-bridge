@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 
 import { buildLivePreviewUrl } from '../api/client';
+import SaveStatusBadge from '../components/common/SaveStatusBadge.vue';
 import StatusBadge from '../components/common/StatusBadge.vue';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useRuntimeStore } from '../stores/runtime';
@@ -25,6 +26,11 @@ const displays = computed(() => workspace.displays.map((display) => ({
       </div>
       <button type="button" class="primary-btn" @click="workspace.addDisplay()">Display hinzufügen</button>
     </div>
+
+    <SaveStatusBadge :state="workspace.saveState" :label="workspace.saveLabel" :note="workspace.saveNote">
+      <button type="button" class="ghost-btn" :disabled="!workspace.canDiscard" @click="workspace.discardChanges()">Verwerfen</button>
+      <button type="button" class="primary-btn" :disabled="!workspace.canSave" @click="workspace.saveNow()">Speichern</button>
+    </SaveStatusBadge>
 
     <article v-for="display in displays" :key="display.id" class="config-card">
       <div class="field-grid two">

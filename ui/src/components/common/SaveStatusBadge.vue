@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineProps<{
-  state: 'idle' | 'saving' | 'saved' | 'error';
+  state: 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
   label: string;
   note?: string;
 }>();
@@ -8,7 +8,12 @@ defineProps<{
 
 <template>
   <div class="save-badge" :data-state="state">
-    <strong>{{ label }}</strong>
-    <span>{{ note }}</span>
+    <div class="save-badge-copy">
+      <strong>{{ label }}</strong>
+      <span>{{ note }}</span>
+    </div>
+    <div v-if="$slots.default" class="save-badge-actions">
+      <slot />
+    </div>
   </div>
 </template>

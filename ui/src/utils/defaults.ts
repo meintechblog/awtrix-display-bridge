@@ -3,7 +3,6 @@ import type { AppConfigPayload, BindingConfig, DisplayConfig, MqttInputConfig, T
 export const DEFAULT_DISPLAY_IP = '192.168.3.126';
 export const DEFAULT_MQTT_BROKER = '192.168.3.8';
 export const DEFAULT_MQTT_TOPIC = 'trading-deluxxe/webapp/status/balance';
-export const DEFAULT_STALE_MS = '2500';
 export const LEGACY_CUSTOM_APP = 'webtext';
 
 export function normalizeIp(value: string): string {
@@ -47,7 +46,6 @@ export function defaultMqttInput(name = 'MQTT'): MqttInputConfig {
     template: '{value}',
     displayMode: '8',
     autoMode: 'off',
-    maxStaleMs: DEFAULT_STALE_MS,
     timeout: 4,
     topicSearch: '',
   };

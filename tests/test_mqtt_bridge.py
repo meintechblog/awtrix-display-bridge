@@ -100,7 +100,6 @@ class BridgeTests(unittest.TestCase):
                         'template': 'Balance: {value}',
                         'display_mode': '8',
                         'auto_mode': 'realtime',
-                        'max_stale_ms': 2500,
                     }
                 ],
             )
@@ -143,7 +142,6 @@ class BridgeTests(unittest.TestCase):
                         'template': '{value}',
                         'display_mode': '8',
                         'auto_mode': '2',
-                        'max_stale_ms': 0,
                     }
                 ],
             )
@@ -162,6 +160,48 @@ class BridgeTests(unittest.TestCase):
             runtime = bridge._auto_runtime.get('rule-interval', {})
             self.assertEqual(runtime.get('pending_value'), '999')
             self.assertEqual(len(queued), 0)
+        finally:
+            bridge.shutdown()
+            tmpdir.cleanup()
+            os.environ.pop('AWTRIX_AUTO_ROUTES_FILE', None)
+
+    def test_auto_route_realtime_does_not_drop_old_payloads(self):
+        bridge, tmpdir = self.make_bridge()
+        queued = []
+        bridge._queue_auto_send = lambda rule, value, message_no: queued.append((rule['id'], value, message_no))
+        bridge._ensure_live_for_auto_rules = lambda: None
+        try:
+            bridge.replace_auto_routes(
+                display_ip='192.168.3.126',
+                routes=[
+                    {
+                        'id': 'rule-old',
+                        'title': 'Balance',
+                        'broker_host': 'broker.local',
+                        'broker_port': 1883,
+                        'topic': 'status/main',
+                        'json_key': 'balance',
+                        'template': 'Balance: {value}',
+                        'display_mode': '8',
+                        'auto_mode': 'realtime',
+                    }
+                ],
+            )
+
+            bridge._on_live_event(
+                'broker.local',
+                1883,
+                {
+                    'topic': 'status/main',
+                    'payload': '{"timestamp_utc":"2020-01-01T00:00:00Z","balance":456.7}',
+                    'updated_at_ms': 1772800000000,
+                    'message_no': 21,
+                },
+            )
+
+            self.assertEqual(len(queued), 1)
+            self.assertEqual(queued[0][0], 'rule-old')
+            self.assertEqual(queued[0][1], '456.7')
         finally:
             bridge.shutdown()
             tmpdir.cleanup()

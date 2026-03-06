@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { RouterView } from 'vue-router';
 
 import SaveStatusBadge from './components/common/SaveStatusBadge.vue';
@@ -14,10 +14,36 @@ const runtime = useRuntimeStore();
 
 useRuntimeStream();
 
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!workspace.hasUnsavedChanges) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = '';
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  const saveShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's';
+  if (!saveShortcut) {
+    return;
+  }
+  event.preventDefault();
+  if (workspace.canSave) {
+    void workspace.saveNow();
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload);
+  window.addEventListener('keydown', handleKeydown);
   if (!workspace.loaded && !workspace.loading) {
     await workspace.load();
   }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+  window.removeEventListener('keydown', handleKeydown);
 });
 
 const summary = computed(() => {
@@ -33,15 +59,6 @@ const summary = computed(() => {
   };
 });
 
-const saveNote = computed(() => {
-  if (workspace.saveState === 'error') {
-    return workspace.saveError || 'Speichern fehlgeschlagen.';
-  }
-  if (workspace.lastSavedAt > 0) {
-    return `Letzte Speicherung ${new Date(workspace.lastSavedAt).toLocaleTimeString('de-DE')}`;
-  }
-  return 'Konfig-Änderungen werden automatisch gespeichert.';
-});
 </script>
 
 <template>
@@ -49,7 +66,10 @@ const saveNote = computed(() => {
     <template #summary>
       <div class="summary-stack">
         <DashboardSummary :summary="summary" />
-        <SaveStatusBadge :state="workspace.saveState" :label="workspace.saveLabel" :note="saveNote" />
+        <SaveStatusBadge :state="workspace.saveState" :label="workspace.saveLabel" :note="workspace.saveNote">
+          <button type="button" class="ghost-btn" :disabled="!workspace.canDiscard" @click="workspace.discardChanges()">Verwerfen</button>
+          <button type="button" class="primary-btn" :disabled="!workspace.canSave" @click="workspace.saveNow()">Speichern</button>
+        </SaveStatusBadge>
       </div>
     </template>
 

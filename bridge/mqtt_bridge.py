@@ -128,30 +128,6 @@ def _extract_payload_value(raw_payload: str, json_key: str) -> str:
     return str(selected)
 
 
-def _payload_timestamp_ms(raw_payload: str) -> int | None:
-    try:
-        parsed = json.loads(str(raw_payload or ''))
-    except Exception:
-        return None
-    if not isinstance(parsed, dict):
-        return None
-
-    ts = parsed.get('ts')
-    if isinstance(ts, (int, float)):
-        val = float(ts)
-        return int(val if val > 1e12 else val * 1000)
-
-    utc = parsed.get('timestamp_utc')
-    if isinstance(utc, str) and utc.strip():
-        try:
-            norm = utc.strip().replace('Z', '+00:00')
-            import datetime as _dt
-            return int(_dt.datetime.fromisoformat(norm).timestamp() * 1000)
-        except Exception:
-            return None
-    return None
-
-
 def _display_mode_to_seconds(mode: str, fallback: int = 8) -> int | None:
     value = str(mode or '').strip().lower()
     if value == 'until-change':
@@ -505,8 +481,6 @@ class MQTTBridge:
             raise ValueError(f'auto rule display_ip is required ({rule_id})')
 
         broker_port = int(raw.get('broker_port', 1883))
-        max_stale_ms = int(raw.get('max_stale_ms', 2500))
-        max_stale_ms = max(0, min(max_stale_ms, 600000))
 
         rule = {
             'id': rule_id,
@@ -519,7 +493,6 @@ class MQTTBridge:
             'template': str(raw.get('template', '{value}')),
             'display_mode': str(raw.get('display_mode', '8')).strip() or '8',
             'auto_mode': auto_mode,
-            'max_stale_ms': max_stale_ms,
             'enabled': _to_bool(raw.get('enabled', True), default=True),
         }
         return rule
@@ -767,14 +740,6 @@ class MQTTBridge:
         except Exception as exc:
             runtime['last_error'] = str(exc)
             return
-
-        max_stale_ms = int(rule.get('max_stale_ms', 0) or 0)
-        if max_stale_ms > 0:
-            payload_ts = _payload_timestamp_ms(raw_payload)
-            recv_ms = int(event.get('updated_at_ms', 0) or 0)
-            base_ts = payload_ts or recv_ms
-            if base_ts > 0 and (int(time.time() * 1000) - base_ts) > max_stale_ms:
-                return
 
         mode = str(rule.get('auto_mode', 'off')).strip().lower()
         if mode == 'realtime':

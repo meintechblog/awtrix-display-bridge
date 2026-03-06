@@ -30,6 +30,9 @@ const bridgeUrl = computed(() => `${window.location.protocol}//${window.location
       </div>
     </article>
 
-    <SaveStatusBadge :state="workspace.saveState" :label="workspace.saveLabel" :note="workspace.saveError || 'Autosave ist aktiv.'" />
+    <SaveStatusBadge :state="workspace.saveState" :label="workspace.saveLabel" :note="workspace.saveNote">
+      <button type="button" class="ghost-btn" :disabled="!workspace.canDiscard" @click="workspace.discardChanges()">Verwerfen</button>
+      <button type="button" class="primary-btn" :disabled="!workspace.canSave" @click="workspace.saveNow()">Speichern</button>
+    </SaveStatusBadge>
   </section>
 </template>

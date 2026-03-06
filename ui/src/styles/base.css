@@ -199,8 +199,24 @@ button {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.save-badge-copy {
+  display: grid;
+  gap: 4px;
+}
+
 .save-badge span {
   color: var(--muted);
+}
+
+.save-badge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.save-badge[data-state='dirty'] {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.12);
 }
 
 .save-badge[data-state='saved'] {
@@ -348,6 +364,14 @@ button {
 .topic-item:hover,
 .tag-pill:hover {
   filter: brightness(1.06);
+}
+
+.primary-btn:disabled,
+.ghost-btn:disabled,
+.danger-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
 }
 
 .status-badge,

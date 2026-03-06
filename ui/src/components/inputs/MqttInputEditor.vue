@@ -6,6 +6,7 @@ import { useTopicBrowser } from '../../composables/useTopicBrowser';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { splitTopic } from '../../utils/mqtt';
+import SaveStatusBadge from '../common/SaveStatusBadge.vue';
 import BindingChips from './BindingChips.vue';
 import TopicBrowser from '../mqtt/TopicBrowser.vue';
 
@@ -98,6 +99,17 @@ const samplePreview = computed(() => browser.detail.value?.previewValue || liveV
 const samplePayload = computed(() => browser.detail.value?.rawPayload || runtime.inputValues[props.inputId]?.rawPayload || '-');
 const keyChips = computed(() => browser.detail.value?.jsonKeys || []);
 const pathSegments = computed(() => splitTopic(input.value?.kind === 'mqtt' ? input.value.topic : ''));
+const editorSaveState = computed(() => workspace.inputSaveState(props.inputId));
+const editorSaveLabel = computed(() => workspace.inputSaveLabel(props.inputId));
+const editorSaveNote = computed(() => {
+  if (editorSaveState.value === 'error') {
+    return workspace.saveError || 'Speichern fehlgeschlagen.';
+  }
+  if (editorSaveState.value === 'dirty') {
+    return 'Topic, Broker und Zuordnung bleiben lokal, bis du speicherst.';
+  }
+  return workspace.saveNote;
+});
 </script>
 
 <template>
@@ -114,6 +126,11 @@ const pathSegments = computed(() => splitTopic(input.value?.kind === 'mqtt' ? in
       </div>
     </div>
 
+    <SaveStatusBadge :state="editorSaveState" :label="editorSaveLabel" :note="editorSaveNote">
+      <button type="button" class="ghost-btn" :disabled="!workspace.canDiscard" @click="workspace.discardChanges()">Verwerfen</button>
+      <button type="button" class="primary-btn" :disabled="!workspace.canSave" @click="workspace.saveNow()">Speichern</button>
+    </SaveStatusBadge>
+
     <div class="field-grid three">
       <div class="field-stack">
         <label>Name</label>
@@ -129,7 +146,7 @@ const pathSegments = computed(() => splitTopic(input.value?.kind === 'mqtt' ? in
       </div>
     </div>
 
-    <div class="field-grid three">
+    <div class="field-grid two">
       <div class="field-stack">
         <label>Auto senden</label>
         <select :value="input.autoMode" @change="updateField('autoMode', ($event.target as HTMLSelectElement).value)">
@@ -143,19 +160,6 @@ const pathSegments = computed(() => splitTopic(input.value?.kind === 'mqtt' ? in
         <select :value="input.displayMode" @change="updateField('displayMode', ($event.target as HTMLSelectElement).value)">
           <option v-for="sec in 10" :key="sec" :value="String(sec)">{{ sec }}s</option>
           <option value="until-change">bis wertänderung</option>
-        </select>
-      </div>
-      <div class="field-stack">
-        <label>Stale-Guard</label>
-        <select :value="input.maxStaleMs" @change="updateField('maxStaleMs', ($event.target as HTMLSelectElement).value)">
-          <option value="0">off</option>
-          <option value="500">0.5s</option>
-          <option value="1000">1s</option>
-          <option value="1500">1.5s</option>
-          <option value="2000">2s</option>
-          <option value="2500">2.5s</option>
-          <option value="5000">5s</option>
-          <option value="10000">10s</option>
         </select>
       </div>
     </div>
