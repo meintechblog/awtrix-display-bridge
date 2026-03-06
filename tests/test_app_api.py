@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from urllib import request
 
-from bridge.mqtt_bridge import build_server
+from bridge.mqtt_bridge import LiveSession, build_server
 
 
 class AppApiTests(unittest.TestCase):
@@ -88,6 +89,63 @@ class AppApiTests(unittest.TestCase):
         self.assertEqual(payload['result']['totals']['displays'], 1)
         self.assertEqual(payload['result']['totals']['inputs'], 1)
         self.assertEqual(payload['result']['totals']['bindings'], 1)
+
+    def test_get_topic_browser_returns_next_level_children(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json')
+            try:
+                server.bridge._topic_cache['broker.local:1883'] = {
+                    'topics': [
+                        {'topic': 'trading-deluxxe/webapp/status/balance'},
+                        {'topic': 'trading-deluxxe/webapp/status/equity'},
+                        {'topic': 'trading-deluxxe/webapp/orders/today'},
+                    ]
+                }
+                payload = self._request_json(
+                    'GET',
+                    (
+                        f'http://127.0.0.1:{server.server_address[1]}/api/topics/browser'
+                        '?broker_host=broker.local&broker_port=1883&prefix=trading-deluxxe/webapp'
+                    ),
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual([item['segment'] for item in payload['result']['items']], ['orders', 'status'])
+
+    def test_get_topic_value_returns_cached_live_payload(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json')
+            try:
+                session = LiveSession('broker.local', 1883)
+                session._on_message(
+                    None,
+                    None,
+                    SimpleNamespace(
+                        topic='trading-deluxxe/webapp/status/balance',
+                        payload=b'15568.91',
+                    ),
+                )
+                server.bridge._live_sessions['broker.local:1883'] = session
+                payload = self._request_json(
+                    'GET',
+                    (
+                        f'http://127.0.0.1:{server.server_address[1]}/api/topics/value'
+                        '?broker_host=broker.local&broker_port=1883&topic=trading-deluxxe/webapp/status/balance'
+                    ),
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['result']['payload'], '15568.91')
 
 
 if __name__ == '__main__':

@@ -21,6 +21,7 @@ import paho.mqtt.client as mqtt
 from bridge.app_api import collection_payload, config_payload
 from bridge.config_store import ConfigStore
 from bridge.runtime_view import build_dashboard_summary, normalize_runtime_event
+from bridge.topic_browser import list_children
 
 LOG = logging.getLogger('mqtt-bridge')
 _MISSING = object()
@@ -1059,6 +1060,34 @@ class MQTTBridge:
             'updated_at_ms': int(time.time() * 1000),
         }
 
+    def topic_browser(
+        self,
+        broker_host: str,
+        broker_port: int,
+        prefix: str = '',
+        query: str = '',
+    ) -> dict[str, Any]:
+        session = self._get_session(broker_host, broker_port)
+        if session is not None:
+            topic_items = session.topic_items(limit=200000, sort_by='topic')
+            topics = [str(item.get('topic', '')) for item in topic_items]
+        else:
+            cache_key = self._key(broker_host, broker_port)
+            with self._lock:
+                snapshot = dict(self._topic_cache.get(cache_key, {}))
+            raw_items = snapshot.get('topics', []) if isinstance(snapshot, dict) else []
+            topics = [str(item.get('topic', '')) for item in raw_items if isinstance(item, dict)]
+
+        items = list_children(topics, prefix=prefix, query=query)
+        return {
+            'broker': broker_host,
+            'port': broker_port,
+            'prefix': str(prefix or '').strip().strip('/'),
+            'query': str(query or '').strip(),
+            'count': len(items),
+            'items': items,
+        }
+
     def shutdown(self) -> None:
         self._auto_stop.set()
         try:
@@ -1323,6 +1352,36 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/bindings':
             self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'bindings')})
+            return
+
+        if parsed.path == '/api/topics/browser':
+            params = parse_qs(parsed.query or '', keep_blank_values=False)
+            broker = str((params.get('broker_host') or [''])[0]).strip()
+            port = int((params.get('broker_port') or ['1883'])[0])
+            prefix = str((params.get('prefix') or [''])[0])
+            query = str((params.get('query') or [''])[0])
+            if not broker:
+                self._write_json({'ok': False, 'error': 'broker_host is required'}, code=400)
+                return
+            result = bridge.topic_browser(broker, port, prefix=prefix, query=query)
+            self._write_json({'ok': True, 'result': result})
+            return
+
+        if parsed.path == '/api/topics/value':
+            params = parse_qs(parsed.query or '', keep_blank_values=False)
+            broker = str((params.get('broker_host') or [''])[0]).strip()
+            port = int((params.get('broker_port') or ['1883'])[0])
+            topic = str((params.get('topic') or [''])[0]).strip()
+            fresh = _to_bool((params.get('fresh') or ['false'])[0], default=False)
+            timeout_s = float((params.get('timeout_s') or ['4'])[0])
+            if not broker:
+                self._write_json({'ok': False, 'error': 'broker_host is required'}, code=400)
+                return
+            if not topic:
+                self._write_json({'ok': False, 'error': 'topic is required'}, code=400)
+                return
+            result = bridge.get_topic_value(broker, port, topic, timeout_s, fresh=fresh)
+            self._write_json({'ok': True, 'result': result})
             return
 
         if parsed.path == '/mqtt/live/events':
