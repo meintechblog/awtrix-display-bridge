@@ -124,3 +124,23 @@ export interface DisplayUpdateResult {
   body: string;
   ok: boolean;
 }
+
+export type DisplayUpdateJobPhase =
+  | 'queued'
+  | 'checking'
+  | 'downloading'
+  | 'uploading'
+  | 'rebooting'
+  | 'verifying'
+  | 'completed'
+  | 'failed';
+
+export interface DisplayUpdateJob {
+  jobId: string;
+  ip: string;
+  phase: DisplayUpdateJobPhase;
+  message: string;
+  done: boolean;
+  ok: boolean;
+  result: Record<string, unknown>;
+}

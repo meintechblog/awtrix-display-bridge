@@ -1,6 +1,7 @@
 import type {
   AppConfigPayload,
   DiscoverySnapshot,
+  DisplayUpdateJob,
   DisplayUpdateResult,
   DisplayUpdateStatus,
   TopicBrowserItem,
@@ -129,6 +130,51 @@ export async function triggerDisplayUpdate(displayIp: string): Promise<DisplayUp
     statusCode: Number(result.status_code || 0),
     body: result.body || '',
     ok: Boolean(result.ok),
+  };
+}
+
+export async function startDisplayUpdateJob(displayIp: string): Promise<DisplayUpdateJob> {
+  const result = await bridgeRequest<{
+    job_id: string;
+    ip: string;
+    phase: DisplayUpdateJob['phase'];
+    message: string;
+    done: boolean;
+    ok: boolean;
+    result: Record<string, unknown>;
+  }>('POST', '/api/display/update/start', { ip: displayIp }, undefined, 4000);
+
+  return {
+    jobId: result.job_id,
+    ip: result.ip,
+    phase: result.phase,
+    message: result.message || '',
+    done: Boolean(result.done),
+    ok: Boolean(result.ok),
+    result: result.result || {},
+  };
+}
+
+export async function fetchDisplayUpdateJob(jobId: string): Promise<DisplayUpdateJob> {
+  const params = new URLSearchParams({ id: jobId });
+  const result = await bridgeRequest<{
+    job_id: string;
+    ip: string;
+    phase: DisplayUpdateJob['phase'];
+    message: string;
+    done: boolean;
+    ok: boolean;
+    result: Record<string, unknown>;
+  }>('GET', '/api/display/update/job', undefined, params, 4000);
+
+  return {
+    jobId: result.job_id,
+    ip: result.ip,
+    phase: result.phase,
+    message: result.message || '',
+    done: Boolean(result.done),
+    ok: Boolean(result.ok),
+    result: result.result || {},
   };
 }
 

@@ -21,9 +21,12 @@ const {
 } = useDisplayDiscovery(() => workspace.displays.map((display) => display.ip));
 const {
   statuses: displayUpdates,
-  updating: updatingDisplays,
+  jobs: updateJobs,
   actionMessages: updateMessages,
-  tryUpdate,
+  handleUpdateAction,
+  ctaLabel,
+  ctaClass,
+  ctaDisabled,
 } = useDisplayUpdates(() => workspace.displays);
 
 const displays = computed(() => workspace.displays.map((display) => ({
@@ -32,52 +35,9 @@ const displays = computed(() => workspace.displays.map((display) => ({
   deviceUrl: buildDisplayUrl(display.ip),
   status: runtime.displayStates[display.id]?.state || 'unknown',
   firmware: displayUpdates.value[display.id],
-  updateBusy: Boolean(updatingDisplays.value[display.id]),
+  updateJob: updateJobs.value[display.id],
   updateMessage: updateMessages.value[display.id] || '',
 })));
-
-function updateCtaLabel(display: {
-  firmware?: { latestVersion?: string; updateAvailable?: boolean } | undefined;
-  updateBusy: boolean;
-}): string {
-  const latestVersion = String(display.firmware?.latestVersion || '').trim();
-  if (display.updateBusy) {
-    return 'Update läuft...';
-  }
-  if (display.firmware?.updateAvailable && latestVersion) {
-    return `Update verfügbar · ${latestVersion}`;
-  }
-  if (latestVersion) {
-    return `Aktuell · ${latestVersion}`;
-  }
-  return 'Update';
-}
-
-function updateCtaIsAction(display: {
-  firmware?: { latestVersion?: string; updateAvailable?: boolean } | undefined;
-  updateBusy: boolean;
-}): boolean {
-  if (display.updateBusy) {
-    return true;
-  }
-  if (display.firmware?.updateAvailable) {
-    return true;
-  }
-  return !String(display.firmware?.latestVersion || '').trim();
-}
-
-function updateCtaClass(display: {
-  firmware?: { latestVersion?: string; updateAvailable?: boolean } | undefined;
-  updateBusy: boolean;
-}): string {
-  if (display.updateBusy) {
-    return 'ghost-btn';
-  }
-  if (display.firmware?.updateAvailable) {
-    return 'primary-btn';
-  }
-  return 'tag-pill';
-}
 
 const discoveryNote = computed(() => {
   if (discoveryError.value) {
@@ -151,15 +111,13 @@ const discoveryNote = computed(() => {
       <div class="tag-row">
         <span class="tag-pill">Version {{ display.firmware?.currentVersion || runtime.displayStates[display.id]?.version || '-' }}</span>
         <button
-          v-if="updateCtaIsAction(display)"
           type="button"
-          :class="updateCtaClass(display)"
-          :disabled="display.updateBusy"
-          @click="tryUpdate(display.id, display.ip)"
+          :class="ctaClass(display.id)"
+          :disabled="ctaDisabled(display.id)"
+          @click="handleUpdateAction(display.id, display.ip)"
         >
-          {{ updateCtaLabel(display) }}
+          {{ ctaLabel(display.id) }}
         </button>
-        <span v-else :class="updateCtaClass(display)">{{ updateCtaLabel(display) }}</span>
         <a class="ghost-btn" :href="display.deviceUrl" target="_blank" rel="noreferrer">Webinterface</a>
       </div>
       <p v-if="display.updateMessage || display.firmware?.error" class="meta-copy">{{ display.updateMessage || display.firmware?.error }}</p>
