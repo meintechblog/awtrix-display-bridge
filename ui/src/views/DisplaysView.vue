@@ -110,7 +110,7 @@ const discoveryNote = computed(() => {
         <span v-if="display.firmware?.latestVersion" class="tag-pill">Neueste {{ display.firmware.latestVersion }}</span>
         <span v-if="display.firmware?.updateAvailable" class="tag-pill" data-selected="true">Update verfügbar</span>
         <button type="button" class="ghost-btn" :disabled="display.updateBusy" @click="tryUpdate(display.id, display.ip)">
-          {{ display.updateBusy ? 'Update läuft...' : 'Update versuchen' }}
+          {{ display.updateBusy ? 'Update läuft...' : 'Update' }}
         </button>
         <a class="ghost-btn" :href="display.deviceUrl" target="_blank" rel="noreferrer">Webinterface</a>
       </div>

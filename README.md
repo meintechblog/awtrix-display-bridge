@@ -30,7 +30,7 @@ Webapp + MQTT bridge to push dynamic content to an AWTRIX 3 display (Ulanzi).
 ## Requirements
 - Python `3.11+`
 - `paho-mqtt`
-- Web server for static frontend (e.g. nginx, caddy, python `http.server`)
+- No separate external web server required; the repo ships a SPA-capable Python webapp server
 
 ## Quick Start (Debian)
 ```bash
@@ -49,10 +49,15 @@ cp deploy/systemd/ulanzi-mqtt-bridge.service /etc/systemd/system/ulanzi-mqtt-bri
 systemctl daemon-reload
 systemctl enable --now ulanzi-mqtt-bridge.service
 
-# 4) Deploy frontend (example nginx docroot)
+# 4) Deploy frontend
 mkdir -p /var/www/ulanzi
-cp frontend/index.html /var/www/ulanzi/index.html
+cp -r ui/dist/* /var/www/ulanzi/
 cp frontend/live.html /var/www/ulanzi/live.html
+
+# 5) Deploy web service
+cp deploy/systemd/ulanzi-web.service /etc/systemd/system/ulanzi-web.service
+systemctl daemon-reload
+systemctl enable --now ulanzi-web.service
 ```
 
 ## Bridge API

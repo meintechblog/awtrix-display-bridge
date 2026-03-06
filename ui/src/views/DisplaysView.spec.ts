@@ -79,10 +79,10 @@ test('adopts a discovered display into the unsaved display list', async () => {
   expect(await screen.findByText('Version 0.96')).toBeInTheDocument();
   expect(screen.getByText('Neueste 0.98')).toBeInTheDocument();
   expect(screen.getByText('Update verfügbar')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Update versuchen' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Webinterface' })).toBeInTheDocument();
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Update versuchen' }));
+  await fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
   await waitFor(() => {
     expect(triggerDisplayUpdate).toHaveBeenCalledWith('192.168.3.126');

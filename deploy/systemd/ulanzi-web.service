@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/busybox httpd -f -p 80 -h /var/www/ulanzi
+WorkingDirectory=/opt/ulanzi-bridge
+ExecStart=/usr/bin/python3 -m bridge.webapp_server --host 0.0.0.0 --port 80 --root /var/www/ulanzi
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
