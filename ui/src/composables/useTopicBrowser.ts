@@ -103,6 +103,7 @@ export function useTopicBrowser(source: () => TopicSource) {
     (topic) => {
       const segments = splitTopic(topic);
       currentPrefix.value = segments.slice(0, -1).join('/');
+      void load(currentPrefix.value);
       if (topic) {
         void loadDetail(topic);
       } else {
