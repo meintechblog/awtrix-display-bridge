@@ -44,6 +44,21 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(loaded['inputs'][0]['kind'], 'mqtt')
         self.assertNotIn('maxStaleMs', loaded['inputs'][0])
 
+    def test_load_migrates_legacy_delivery_fields_into_nested_delivery(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = f'{tmpdir}/app-config.json'
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    '{"version":1,"updated_at":1,"displays":[],"inputs":[{"id":"mqtt-1","kind":"mqtt","name":"MQTT","template":"Balance: {value}","displayMode":"8","autoMode":"realtime"}],"bindings":[]}'
+                )
+
+            store = ConfigStore(path)
+            loaded = store.load()
+
+        self.assertEqual(loaded['inputs'][0]['delivery']['template'], 'Balance: {value}')
+        self.assertEqual(loaded['inputs'][0]['delivery']['displayDuration'], '8')
+        self.assertEqual(loaded['inputs'][0]['delivery']['sendMode'], 'realtime')
+
 
 if __name__ == '__main__':
     unittest.main()

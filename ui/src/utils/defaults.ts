@@ -1,9 +1,18 @@
-import type { AppConfigPayload, BindingConfig, DisplayConfig, MqttInputConfig, TextInputConfig } from '../types/domain';
+import type { AppConfigPayload, BindingConfig, DeliveryConfig, DisplayConfig, MqttInputConfig, TextInputConfig } from '../types/domain';
 
 export const DEFAULT_DISPLAY_IP = '192.168.3.126';
 export const DEFAULT_MQTT_BROKER = '192.168.3.8';
 export const DEFAULT_MQTT_TOPIC = 'trading-deluxxe/webapp/status/balance';
 export const LEGACY_CUSTOM_APP = 'webtext';
+
+export function defaultDeliveryConfig(overrides: Partial<DeliveryConfig> = {}): DeliveryConfig {
+  return {
+    template: '{value}',
+    sendMode: 'off',
+    displayDuration: '8',
+    ...overrides,
+  };
+}
 
 export function normalizeIp(value: string): string {
   return String(value || '')
@@ -30,7 +39,7 @@ export function defaultTextInput(name = 'Text'): TextInputConfig {
     kind: 'text',
     name,
     text: '',
-    duration: 8,
+    delivery: defaultDeliveryConfig({ displayDuration: '8' }),
   };
 }
 
@@ -43,11 +52,9 @@ export function defaultMqttInput(name = 'MQTT'): MqttInputConfig {
     brokerPort: 1883,
     topic: '',
     jsonKey: '',
-    template: '{value}',
-    displayMode: '8',
-    autoMode: 'off',
     timeout: 4,
     topicSearch: '',
+    delivery: defaultDeliveryConfig(),
   };
 }
 
@@ -56,7 +63,7 @@ export function presetBalanceInput(): MqttInputConfig {
     ...defaultMqttInput('MQTT Balance'),
     id: 'preset-mqtt-balance',
     topic: DEFAULT_MQTT_TOPIC,
-    template: 'Balance: {value}',
+    delivery: defaultDeliveryConfig({ template: 'Balance: {value}' }),
   };
 }
 

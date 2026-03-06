@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia';
 
 import { fetchConfig, replaceAutoRoutes, saveConfig } from '../api/client';
-import type { AppConfigPayload, BindingConfig, DiscoveryDisplay, DisplayConfig, InputConfig, MqttInputConfig, SaveState } from '../types/domain';
-import { defaultBinding, defaultDisplay, defaultMqttInput, defaultTextInput, normalizeIp, seedWorkspace, DEFAULT_DISPLAY_IP } from '../utils/defaults';
+import type { AppConfigPayload, BindingConfig, DeliveryConfig, DiscoveryDisplay, DisplayConfig, InputConfig, MqttInputConfig, SaveState } from '../types/domain';
+import { defaultBinding, defaultDeliveryConfig, defaultDisplay, defaultMqttInput, defaultTextInput, normalizeIp, seedWorkspace, DEFAULT_DISPLAY_IP } from '../utils/defaults';
 
 type ComparableConfig = Omit<AppConfigPayload, 'updated_at'>;
 
@@ -18,6 +18,18 @@ function normalizeDisplay(display: Partial<DisplayConfig>, fallbackName: string)
   };
 }
 
+function normalizeDelivery(input: Partial<InputConfig>): DeliveryConfig {
+  const raw = (input as { delivery?: Partial<DeliveryConfig> }).delivery || {};
+  const template = String(raw.template || (input as { template?: string }).template || '{value}');
+  const sendMode = String(raw.sendMode || (input as { autoMode?: string }).autoMode || 'off').trim().toLowerCase() || 'off';
+  const displayDuration = String(raw.displayDuration || (input as { displayMode?: string; duration?: number }).displayMode || (input as { duration?: number }).duration || '8').trim() || '8';
+  return defaultDeliveryConfig({
+    template,
+    sendMode,
+    displayDuration,
+  });
+}
+
 function normalizeInput(input: Partial<InputConfig>, index: number): InputConfig {
   if (input.kind === 'mqtt') {
     return {
@@ -29,11 +41,9 @@ function normalizeInput(input: Partial<InputConfig>, index: number): InputConfig
       brokerPort: Number((input as MqttInputConfig).brokerPort) || 1883,
       topic: String((input as MqttInputConfig).topic || '').trim(),
       jsonKey: String((input as MqttInputConfig).jsonKey || '').trim(),
-      template: String((input as MqttInputConfig).template || '{value}'),
-      displayMode: String((input as MqttInputConfig).displayMode || '8'),
-      autoMode: String((input as MqttInputConfig).autoMode || 'off'),
       timeout: Number((input as MqttInputConfig).timeout) || 4,
       topicSearch: String((input as MqttInputConfig).topicSearch || ''),
+      delivery: normalizeDelivery(input),
       kind: 'mqtt',
     };
   }
@@ -44,7 +54,7 @@ function normalizeInput(input: Partial<InputConfig>, index: number): InputConfig
     id: String(input.id || '').trim() || `input-${Math.random().toString(36).slice(2, 8)}`,
     name: String(input.name || '').trim() || `Text ${index + 1}`,
     text: String((input as { text?: string }).text || ''),
-    duration: Math.min(120, Math.max(1, Number((input as { duration?: number }).duration) || 8)),
+    delivery: normalizeDelivery(input),
     kind: 'text',
   };
 }
@@ -295,7 +305,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async syncAutoRoutes() {
       const routes = this.mqttInputs.flatMap((input) => {
-        if (String(input.autoMode || 'off') === 'off') {
+        if (String(input.delivery?.sendMode || 'off') === 'off') {
           return [];
         }
         return this.assignedDisplays(input.id)
@@ -308,9 +318,9 @@ export const useWorkspaceStore = defineStore('workspace', {
             broker_port: input.brokerPort,
             topic: input.topic,
             json_key: input.jsonKey,
-            template: input.template,
-            display_mode: input.displayMode,
-            auto_mode: input.autoMode,
+            template: input.delivery.template,
+            display_duration: input.delivery.displayDuration,
+            send_mode: input.delivery.sendMode,
             enabled: true,
           }));
       });

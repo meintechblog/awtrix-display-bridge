@@ -477,7 +477,7 @@ class MQTTBridge:
 
         broker_host = str(raw.get('broker_host', '')).strip()
         topic = str(raw.get('topic', '')).strip()
-        auto_mode = str(raw.get('auto_mode', 'off')).strip().lower()
+        auto_mode = str(raw.get('auto_mode', raw.get('send_mode', 'off'))).strip().lower()
         if auto_mode not in {'realtime', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'}:
             auto_mode = 'off'
 
@@ -494,6 +494,7 @@ class MQTTBridge:
 
         broker_port = int(raw.get('broker_port', 1883))
 
+        display_mode = str(raw.get('display_mode', raw.get('display_duration', '8'))).strip() or '8'
         rule = {
             'id': rule_id,
             'title': str(raw.get('title', 'MQTT')).strip() or 'MQTT',
@@ -503,8 +504,10 @@ class MQTTBridge:
             'topic': topic,
             'json_key': str(raw.get('json_key', '')).strip(),
             'template': str(raw.get('template', '{value}')),
-            'display_mode': str(raw.get('display_mode', '8')).strip() or '8',
+            'display_mode': display_mode,
             'auto_mode': auto_mode,
+            'display_duration': display_mode,
+            'send_mode': auto_mode,
             'enabled': _to_bool(raw.get('enabled', True), default=True),
         }
         return rule

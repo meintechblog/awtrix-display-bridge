@@ -98,8 +98,8 @@ class BridgeTests(unittest.TestCase):
                         'topic': 'status/main',
                         'json_key': 'balance',
                         'template': 'Balance: {value}',
-                        'display_mode': '8',
-                        'auto_mode': 'realtime',
+                        'display_duration': '8',
+                        'send_mode': 'realtime',
                     }
                 ],
             )
@@ -140,8 +140,8 @@ class BridgeTests(unittest.TestCase):
                         'topic': 'status/main',
                         'json_key': '',
                         'template': '{value}',
-                        'display_mode': '8',
-                        'auto_mode': '2',
+                        'display_duration': '8',
+                        'send_mode': '2',
                     }
                 ],
             )
@@ -182,8 +182,8 @@ class BridgeTests(unittest.TestCase):
                         'topic': 'status/main',
                         'json_key': 'balance',
                         'template': 'Balance: {value}',
-                        'display_mode': '8',
-                        'auto_mode': 'realtime',
+                        'display_duration': '8',
+                        'send_mode': 'realtime',
                     }
                 ],
             )

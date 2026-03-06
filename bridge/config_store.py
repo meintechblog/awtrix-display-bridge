@@ -21,6 +21,18 @@ def _sanitize_input(item: dict[str, Any]) -> dict[str, Any]:
     clean = dict(item)
     clean.pop('maxStaleMs', None)
     clean.pop('max_stale_ms', None)
+    delivery = clean.get('delivery')
+    if not isinstance(delivery, dict):
+        delivery = {}
+    clean['delivery'] = {
+        'template': str(delivery.get('template') or clean.pop('template', '{value}') or '{value}'),
+        'sendMode': str(delivery.get('sendMode') or clean.pop('autoMode', 'off') or 'off'),
+        'displayDuration': str(
+            delivery.get('displayDuration')
+            or clean.pop('displayMode', clean.pop('duration', '8'))
+            or '8'
+        ),
+    }
     return clean
 
 

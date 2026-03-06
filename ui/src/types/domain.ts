@@ -1,6 +1,12 @@
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 export type DisplayHealth = 'online' | 'offline' | 'stale' | 'unknown';
-export type InputKind = 'text' | 'mqtt';
+export type SkillKind = 'text' | 'mqtt';
+
+export interface DeliveryConfig {
+  template: string;
+  sendMode: string;
+  displayDuration: string;
+}
 
 export interface DisplayConfig {
   id: string;
@@ -23,7 +29,7 @@ export interface TextInputConfig {
   kind: 'text';
   name: string;
   text: string;
-  duration: number;
+  delivery: DeliveryConfig;
 }
 
 export interface MqttInputConfig {
@@ -34,11 +40,9 @@ export interface MqttInputConfig {
   brokerPort: number;
   topic: string;
   jsonKey: string;
-  template: string;
-  displayMode: string;
-  autoMode: string;
   timeout: number;
   topicSearch: string;
+  delivery: DeliveryConfig;
 }
 
 export type InputConfig = TextInputConfig | MqttInputConfig;
