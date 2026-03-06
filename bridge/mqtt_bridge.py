@@ -20,6 +20,7 @@ import paho.mqtt.client as mqtt
 
 from bridge.app_api import collection_payload, config_payload
 from bridge.config_store import ConfigStore
+from bridge.runtime_view import build_dashboard_summary, normalize_runtime_event
 
 LOG = logging.getLogger('mqtt-bridge')
 _MISSING = object()
@@ -1045,6 +1046,19 @@ class MQTTBridge:
 
         return session.snapshot(query=query, limit=limit)
 
+    def runtime_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            live_brokers = len(self._live_sessions)
+        with self._auto_lock:
+            auto_routes = len(self._auto_rules)
+
+        return {
+            'display_status': {},
+            'live_brokers': live_brokers,
+            'auto_routes': auto_routes,
+            'updated_at_ms': int(time.time() * 1000),
+        }
+
     def shutdown(self) -> None:
         self._auto_stop.set()
         try:
@@ -1206,6 +1220,79 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self._bridge().remove_live_subscriber(broker, port, subscriber_id)
 
+    def _stream_runtime_events(self, parsed) -> None:
+        params = parse_qs(parsed.query or '', keep_blank_values=False)
+
+        broker = str((params.get('broker_host') or [''])[0]).strip()
+        port = int((params.get('broker_port') or ['1883'])[0])
+        heartbeat_s = _clamp(float((params.get('heartbeat_s') or ['15'])[0]), 5.0, 60.0)
+        queue_size = int((params.get('queue_size') or ['400'])[0])
+        topics = self._parse_topics(params)
+
+        if not broker:
+            raise ValueError('broker_host is required')
+
+        bridge = self._bridge()
+        subscriber = bridge.create_live_subscriber(
+            broker_host=broker,
+            broker_port=port,
+            topic_filters=topics,
+            last_message_no=0,
+            queue_size=queue_size,
+        )
+        subscriber_id = str(subscriber.get('subscriber_id'))
+
+        self._set_headers(
+            200,
+            content_type='text/event-stream; charset=utf-8',
+            extra_headers={
+                'Cache-Control': 'no-cache, no-transform',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            },
+        )
+
+        try:
+            self.wfile.write(b': connected\n\n')
+            self.wfile.flush()
+
+            while True:
+                event = bridge.wait_live_event(
+                    broker_host=broker,
+                    broker_port=port,
+                    subscriber_id=subscriber_id,
+                    timeout_s=heartbeat_s,
+                )
+                if event is None:
+                    self.wfile.write(b': ping\n\n')
+                    self.wfile.flush()
+                    continue
+
+                payload = normalize_runtime_event(
+                    event_type='mqtt.message',
+                    entity='topic',
+                    entity_id=str(event.get('topic', '')),
+                    state='updated',
+                    updated_at_ms=int(event.get('updated_at_ms', 0) or 0),
+                    detail={
+                        'topic': str(event.get('topic', '')),
+                        'payload': str(event.get('payload', '')),
+                        'json_keys': [str(item) for item in (event.get('json_keys') or [])],
+                        'message_no': int(event.get('message_no', 0) or 0),
+                    },
+                )
+                blob = (
+                    f"id: {payload['detail']['message_no']}\n"
+                    'event: runtime\n'
+                    f'data: {json.dumps(payload, ensure_ascii=True)}\n\n'
+                )
+                self.wfile.write(blob.encode('utf-8'))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            bridge.remove_live_subscriber(broker, port, subscriber_id)
+
     def do_OPTIONS(self) -> None:
         self._set_headers(204)
 
@@ -1219,6 +1306,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/config':
             self._write_json({'ok': True, 'result': config_payload(bridge.config_store.load())})
+            return
+
+        if parsed.path == '/api/dashboard':
+            summary = build_dashboard_summary(bridge.config_store.load(), bridge.runtime_snapshot())
+            self._write_json({'ok': True, 'result': summary})
             return
 
         if parsed.path == '/api/displays':
@@ -1240,6 +1332,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._write_json({'ok': False, 'error': str(exc)}, code=400)
             except Exception as exc:
                 LOG.exception('SSE request failed')
+                try:
+                    self._write_json({'ok': False, 'error': str(exc)}, code=500)
+                except Exception:
+                    pass
+            return
+
+        if parsed.path == '/api/runtime/events':
+            try:
+                self._stream_runtime_events(parsed)
+            except ValueError as exc:
+                self._write_json({'ok': False, 'error': str(exc)}, code=400)
+            except Exception as exc:
+                LOG.exception('Runtime SSE request failed')
                 try:
                     self._write_json({'ok': False, 'error': str(exc)}, code=500)
                 except Exception:

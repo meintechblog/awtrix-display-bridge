@@ -65,6 +65,30 @@ class AppApiTests(unittest.TestCase):
         self.assertEqual(stored['inputs'][0]['name'], 'Balance')
         self.assertEqual(stored['bindings'][0]['input_id'], 'i-1')
 
+    def test_get_dashboard_returns_summary_counts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server, thread = build_server('127.0.0.1', 0, app_config_path=f'{tmpdir}/app-config.json')
+            try:
+                server.bridge.config_store.replace_config(
+                    displays=[{'id': 'd-1', 'name': 'Main', 'ip': '192.168.3.126'}],
+                    inputs=[{'id': 'i-1', 'kind': 'text', 'name': 'Banner'}],
+                    bindings=[{'id': 'b-1', 'display_ids': ['d-1'], 'input_id': 'i-1'}],
+                )
+                payload = self._request_json(
+                    'GET',
+                    f'http://127.0.0.1:{server.server_address[1]}/api/dashboard',
+                )
+            finally:
+                server.bridge.shutdown()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['result']['totals']['displays'], 1)
+        self.assertEqual(payload['result']['totals']['inputs'], 1)
+        self.assertEqual(payload['result']['totals']['bindings'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()
