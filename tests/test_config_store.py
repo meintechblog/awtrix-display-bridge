@@ -30,6 +30,20 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(loaded['inputs'][0]['kind'], 'text')
         self.assertEqual(loaded['bindings'][0]['input_id'], 'i-1')
 
+    def test_load_strips_legacy_mqtt_stale_guard_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = f'{tmpdir}/app-config.json'
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    '{"version":1,"updated_at":1,"displays":[],"inputs":[{"id":"mqtt-1","kind":"mqtt","name":"MQTT","maxStaleMs":"2500"}],"bindings":[]}'
+                )
+
+            store = ConfigStore(path)
+            loaded = store.load()
+
+        self.assertEqual(loaded['inputs'][0]['kind'], 'mqtt')
+        self.assertNotIn('maxStaleMs', loaded['inputs'][0])
+
 
 if __name__ == '__main__':
     unittest.main()

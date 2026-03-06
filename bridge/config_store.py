@@ -17,6 +17,13 @@ def _default_payload() -> dict[str, Any]:
     }
 
 
+def _sanitize_input(item: dict[str, Any]) -> dict[str, Any]:
+    clean = dict(item)
+    clean.pop('maxStaleMs', None)
+    clean.pop('max_stale_ms', None)
+    return clean
+
+
 class ConfigStore:
     def __init__(self, path: str) -> None:
         self.path = path
@@ -35,6 +42,7 @@ class ConfigStore:
             for key in ('version', 'updated_at', 'displays', 'inputs', 'bindings'):
                 if key in raw:
                     payload[key] = raw[key]
+        payload['inputs'] = [_sanitize_input(item) for item in payload.get('inputs', []) if isinstance(item, dict)]
         return payload
 
     def replace_config(
@@ -48,7 +56,7 @@ class ConfigStore:
             'version': 1,
             'updated_at': int(time.time()),
             'displays': [dict(item) for item in displays if isinstance(item, dict)],
-            'inputs': [dict(item) for item in inputs if isinstance(item, dict)],
+            'inputs': [_sanitize_input(item) for item in inputs if isinstance(item, dict)],
             'bindings': [dict(item) for item in bindings if isinstance(item, dict)],
         }
         parent = os.path.dirname(self.path)
