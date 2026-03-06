@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 import paho.mqtt.client as mqtt
 
+from bridge.app_api import collection_payload, config_payload
 from bridge.config_store import ConfigStore
 
 LOG = logging.getLogger('mqtt-bridge')
@@ -425,19 +426,21 @@ class LiveSession:
 
 
 class MQTTBridge:
-    def __init__(self) -> None:
+    def __init__(self, app_config_path: str | None = None, auto_rules_path: str | None = None) -> None:
         self._lock = threading.Lock()
         self._topic_cache: dict[str, dict[str, Any]] = {}
         self._live_sessions: dict[str, LiveSession] = {}
         self.config_store = ConfigStore(
-            os.environ.get('AWTRIX_APP_CONFIG_FILE', '/opt/ulanzi-bridge/app_config.json')
+            app_config_path or os.environ.get('AWTRIX_APP_CONFIG_FILE', '/opt/ulanzi-bridge/app_config.json')
         )
         self._auto_lock = threading.Lock()
         self._auto_rules: dict[str, dict[str, Any]] = {}
         self._auto_runtime: dict[str, dict[str, Any]] = {}
         self._auto_send_queue: queue.Queue = queue.Queue(maxsize=2000)
         self._auto_stop = threading.Event()
-        self._auto_rules_path = os.environ.get('AWTRIX_AUTO_ROUTES_FILE', '/opt/ulanzi-bridge/auto_routes.json')
+        self._auto_rules_path = auto_rules_path or os.environ.get(
+            'AWTRIX_AUTO_ROUTES_FILE', '/opt/ulanzi-bridge/auto_routes.json'
+        )
         self._auto_sender_thread = threading.Thread(target=self._auto_sender_loop, name='awtrix-auto-sender', daemon=True)
         self._auto_tick_thread = threading.Thread(target=self._auto_tick_loop, name='awtrix-auto-tick', daemon=True)
         self._load_auto_rules()
@@ -1065,7 +1068,11 @@ class MQTTBridge:
 
 
 class Handler(BaseHTTPRequestHandler):
-    bridge = MQTTBridge()
+    def _bridge(self) -> MQTTBridge:
+        bridge = getattr(self.server, 'bridge', None)
+        if bridge is None:
+            raise RuntimeError('bridge unavailable')
+        return bridge
 
     def _set_headers(
         self,
@@ -1076,7 +1083,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', content_type)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type,Last-Event-ID')
         if extra_headers:
             for key, value in extra_headers.items():
@@ -1141,7 +1148,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 last_message_no = 0
 
-        subscriber = self.bridge.create_live_subscriber(
+        bridge = self._bridge()
+        subscriber = bridge.create_live_subscriber(
             broker_host=broker,
             broker_port=port,
             topic_filters=topics,
@@ -1165,7 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
             while True:
-                event = self.bridge.wait_live_event(
+                event = bridge.wait_live_event(
                     broker_host=broker,
                     broker_port=port,
                     subscriber_id=subscriber_id,
@@ -1196,16 +1204,33 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         finally:
-            self.bridge.remove_live_subscriber(broker, port, subscriber_id)
+            self._bridge().remove_live_subscriber(broker, port, subscriber_id)
 
     def do_OPTIONS(self) -> None:
         self._set_headers(204)
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        bridge = self._bridge()
 
         if parsed.path == '/health':
             self._write_json({'ok': True, 'service': 'mqtt-bridge'})
+            return
+
+        if parsed.path == '/api/config':
+            self._write_json({'ok': True, 'result': config_payload(bridge.config_store.load())})
+            return
+
+        if parsed.path == '/api/displays':
+            self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'displays')})
+            return
+
+        if parsed.path == '/api/inputs':
+            self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'inputs')})
+            return
+
+        if parsed.path == '/api/bindings':
+            self._write_json({'ok': True, 'result': collection_payload(bridge.config_store.load(), 'bindings')})
             return
 
         if parsed.path == '/mqtt/live/events':
@@ -1223,7 +1248,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/auto/routes':
             try:
-                result = self.bridge.list_auto_routes()
+                result = bridge.list_auto_routes()
                 self._write_json({'ok': True, 'result': result})
             except Exception as exc:
                 self._write_json({'ok': False, 'error': str(exc)}, code=500)
@@ -1231,9 +1256,19 @@ class Handler(BaseHTTPRequestHandler):
 
         self._write_json({'ok': False, 'error': 'Not found'}, code=404)
 
-    def do_POST(self) -> None:
+    def _handle_json_write(self, method: str) -> None:
         try:
             data = self._read_json()
+            bridge = self._bridge()
+            if method == 'PUT' and self.path == '/api/config':
+                result = bridge.config_store.replace_config(
+                    displays=collection_payload(data, 'displays')['items'],
+                    inputs=collection_payload(data, 'inputs')['items'],
+                    bindings=collection_payload(data, 'bindings')['items'],
+                )
+                self._write_json({'ok': True, 'result': config_payload(result)})
+                return
+
             if self.path == '/mqtt/topics/sync':
                 broker = str(data.get('broker_host', '')).strip()
                 port = int(data.get('broker_port', 1883))
@@ -1241,7 +1276,7 @@ class Handler(BaseHTTPRequestHandler):
                 max_topics = int(data.get('max_topics', 1200))
                 if not broker:
                     raise ValueError('broker_host is required')
-                result = self.bridge.sync_topics(broker, port, timeout_s, max_topics)
+                result = bridge.sync_topics(broker, port, timeout_s, max_topics)
                 self._write_json({'ok': True, 'result': result})
                 return
 
@@ -1255,7 +1290,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError('broker_host is required')
                 if not topic:
                     raise ValueError('topic is required')
-                result = self.bridge.get_topic_value(broker, port, topic, timeout_s, fresh=fresh)
+                result = bridge.get_topic_value(broker, port, topic, timeout_s, fresh=fresh)
                 self._write_json({'ok': True, 'result': result})
                 return
 
@@ -1264,7 +1299,7 @@ class Handler(BaseHTTPRequestHandler):
                 port = int(data.get('broker_port', 1883))
                 if not broker:
                     raise ValueError('broker_host is required')
-                result = self.bridge.start_live(broker, port)
+                result = bridge.start_live(broker, port)
                 self._write_json({'ok': True, 'result': result})
                 return
 
@@ -1273,7 +1308,7 @@ class Handler(BaseHTTPRequestHandler):
                 port = int(data.get('broker_port', 1883))
                 if not broker:
                     raise ValueError('broker_host is required')
-                result = self.bridge.stop_live(broker, port)
+                result = bridge.stop_live(broker, port)
                 self._write_json({'ok': True, 'result': result})
                 return
 
@@ -1285,14 +1320,14 @@ class Handler(BaseHTTPRequestHandler):
                 auto_start = _to_bool(data.get('auto_start', True), default=True)
                 if not broker:
                     raise ValueError('broker_host is required')
-                result = self.bridge.live_snapshot(broker, port, query=query, limit=limit, auto_start=auto_start)
+                result = bridge.live_snapshot(broker, port, query=query, limit=limit, auto_start=auto_start)
                 self._write_json({'ok': True, 'result': result})
                 return
 
             if self.path == '/auto/routes/replace':
                 display_ip = str(data.get('display_ip', '')).strip()
                 routes = data.get('routes', [])
-                result = self.bridge.replace_auto_routes(display_ip=display_ip, routes=routes)
+                result = bridge.replace_auto_routes(display_ip=display_ip, routes=routes)
                 self._write_json({'ok': True, 'result': result})
                 return
 
@@ -1303,8 +1338,37 @@ class Handler(BaseHTTPRequestHandler):
             LOG.exception('Request failed')
             self._write_json({'ok': False, 'error': str(exc)}, code=400)
 
+    def do_POST(self) -> None:
+        self._handle_json_write('POST')
+
+    def do_PUT(self) -> None:
+        self._handle_json_write('PUT')
+
     def log_message(self, fmt: str, *args: Any) -> None:
         LOG.info('%s - %s', self.client_address[0], fmt % args)
+
+
+class BridgeHTTPServer(ThreadingHTTPServer):
+    def __init__(self, server_address: tuple[str, int], handler_cls, bridge: MQTTBridge) -> None:
+        self.bridge = bridge
+        super().__init__(server_address, handler_cls)
+
+
+def build_server(
+    host: str,
+    port: int,
+    *,
+    app_config_path: str | None = None,
+    auto_rules_path: str | None = None,
+    start_thread: bool = True,
+) -> tuple[BridgeHTTPServer, threading.Thread | None]:
+    bridge = MQTTBridge(app_config_path=app_config_path, auto_rules_path=auto_rules_path)
+    server = BridgeHTTPServer((host, port), Handler, bridge)
+    thread = None
+    if start_thread:
+        thread = threading.Thread(target=server.serve_forever, name='mqtt-bridge-http', daemon=True)
+        thread.start()
+    return server, thread
 
 
 def main() -> None:
@@ -1314,7 +1378,7 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server, _ = build_server(args.host, args.port, start_thread=False)
     LOG.info('Starting MQTT bridge on %s:%s', args.host, args.port)
     try:
         server.serve_forever()
@@ -1322,7 +1386,7 @@ def main() -> None:
         pass
     finally:
         try:
-            Handler.bridge.shutdown()
+            server.bridge.shutdown()
         except Exception:
             pass
         server.server_close()
